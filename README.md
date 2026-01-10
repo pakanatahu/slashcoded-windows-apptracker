@@ -68,3 +68,4 @@ The tracker is designed to be source-agnostic. If your app exposes an HTTP API t
 
 - It is Windows-only.
 - Data stays on the local machine unless your API forwards it elsewhere.
+- This service is not standalone; without a local API that provides the allowlist and accepts uploads, it will not record or report activity.
