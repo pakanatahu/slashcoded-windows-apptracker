@@ -5,9 +5,12 @@ Windows desktop activity tracker used by Slashcoded Desktop. It measures foregro
 ## What it does
 
 - Polls the active window/process at a regular interval.
-- Resolves the app/process into a stable name and category.
-- Emits events in the same shape as other Slashcoded sources.
-- Sends those events to the local API so they are stored and aggregated.
+- Resolves the app/process into a stable name.
+- Polls the local API for the allowlist on a regular cadence and keeps a local in-memory cache.
+- Checks the cached allowlist to decide whether a process is approved for tracking (not per-upload).
+- Only when the app is allowlisted does it measure elapsed activity and upload events.
+- Emits events in the same shape as other Slashcoded sources and sends them to the local API so they are stored and aggregated.
+- Registers a trusted source once and signs each upload with trust headers.
 
 ## Configuration
 
@@ -32,6 +35,58 @@ Slashcoded Desktop runs this tracker as a background process. The local API rece
 ## Integration guide
 
 The tracker posts JSON to the local API at `POST {ApiBaseUrl}/api/upload`.
+
+### Trusted source enrollment
+
+Before signed uploads, the tracker performs one-time enrollment with:
+
+`POST {ApiBaseUrl}/api/security/sources/register`
+
+Request body:
+
+```json
+{
+  "clientId": "desktop-tracker",
+  "clientType": "desktop",
+  "machineId": "<stable-machine-id>",
+  "displayName": "Windows App Tracker"
+}
+```
+
+The tracker persists the returned `sourceId` and `secret` in user-local app data using Windows DPAPI.
+
+### Trusted upload headers
+
+Each upload request includes:
+
+- `X-Sc-Source-Id`
+- `X-Sc-Timestamp` (unix-ms)
+- `X-Sc-Nonce` (new per request)
+- `X-Sc-Signature` (HMAC-SHA256 base64)
+
+Signature base string:
+
+```text
+METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256_BASE64(rawBodyBytes)
+```
+
+The tracker signs exact outbound body bytes and regenerates timestamp/nonce/signature on retry.
+
+### Allowlist contract
+
+The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/allowlist` and return JSON like:
+
+```json
+{
+  "apps": [
+    {
+      "processName": "explorer",
+      "displayName": "Windows Explorer",
+      "category": "good"
+    }
+  ]
+}
+```
 
 ### Data contract
 
@@ -61,6 +116,7 @@ Notes:
 - `occurredAt` uses ISO 8601 format.
 - `durationMs` and `payload.duration_ms` are in milliseconds (rounded from seconds).
 - `processName` is the process name, and `payload.processPath` is the full path when available.
+- Upload payloads above `16KB` are rejected client-side.
 
 The tracker is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the tracker to capture Windows app usage and feed your system.
 

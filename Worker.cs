@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Win32;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
 namespace Slashcoded.DesktopTracker;
@@ -10,6 +12,7 @@ public sealed class Worker : BackgroundService
     private static readonly TimeSpan AllowlistTtl = TimeSpan.FromMinutes(1);
     private readonly ILogger<Worker> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly TrustedUploadClient _trustedUploadClient;
     private readonly TrackerOptions _options;
     private readonly ActiveWindowMonitor _monitor;
     private readonly TimeSpan _heartbeatInterval;
@@ -25,14 +28,19 @@ public sealed class Worker : BackgroundService
     private volatile bool _resetAfterResume;
     private DateTimeOffset _lastLoop = DateTimeOffset.MinValue;
 
-    public Worker(IHttpClientFactory httpClientFactory, IOptions<TrackerOptions> options, ILogger<Worker> logger)
+    public Worker(
+        IHttpClientFactory httpClientFactory,
+        TrustedUploadClient trustedUploadClient,
+        IOptions<TrackerOptions> options,
+        ILogger<Worker> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _trustedUploadClient = trustedUploadClient;
         _options = options.Value;
         _logger = logger;
         _monitor = new ActiveWindowMonitor();
         _heartbeatInterval = TimeSpan.FromSeconds(Math.Max(1, _options.HeartbeatIntervalSeconds));
-        _flushInterval = TimeSpan.FromMinutes(Math.Max(1, _options.FlushIntervalMinutes));
+        _flushInterval = TimeSpan.FromMinutes(Math.Clamp(_options.FlushIntervalMinutes, 1, 24 * 60));
         _sleepGapThreshold = TimeSpan.FromMinutes(Math.Max(1, _options.SleepGapThresholdMinutes));
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
@@ -153,7 +161,17 @@ public sealed class Worker : BackgroundService
 
     private async Task PublishEventAsync(DesktopWindowSample sample, TimeSpan duration, DateTimeOffset occurredAt, CancellationToken cancellationToken)
     {
-        var client = _httpClientFactory.CreateClient();
+        if (duration < TimeSpan.FromSeconds(1))
+        {
+            _logger.LogDebug("Skipping upload below minimum duration for {Process}", sample.ProcessName);
+            return;
+        }
+
+        if (duration > TimeSpan.FromHours(24))
+        {
+            _logger.LogWarning("Clamping oversized activity duration for {Process} from {Duration} to 24h", sample.ProcessName, duration);
+            duration = TimeSpan.FromHours(24);
+        }
 
         var durationMs = Math.Max(1, (long)Math.Round(duration.TotalSeconds * 1000));
         var durationSeconds = Math.Max(1, (int)Math.Round(duration.TotalSeconds));
@@ -178,8 +196,7 @@ public sealed class Worker : BackgroundService
 
         try
         {
-            var response = await client.PostAsJsonAsync($"{_options.ApiBaseUrl}/api/upload", payload, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            await _trustedUploadClient.PostSignedJsonAsync(HttpMethod.Post, "/api/upload", payload, cancellationToken);
             _logger.LogInformation("Uploaded {Process} activity: {Seconds}s", sample.ProcessName, durationSeconds);
         }
         catch (Exception ex)
@@ -246,10 +263,11 @@ public sealed class Worker : BackgroundService
 
         try
         {
+            var displayName = ResolveDisplayName(sample);
             var payload = new
             {
                 processName = sample.ProcessName,
-                displayName = sample.ProcessName
+                displayName
             };
             var client = _httpClientFactory.CreateClient();
             var response = await client.PostAsJsonAsync($"{_options.ApiBaseUrl}/api/desktop/apps/discover", payload, cancellationToken);
@@ -260,6 +278,36 @@ public sealed class Worker : BackgroundService
             _logger.LogDebug(ex, "Failed to report desktop app discovery for {App}", sample.ProcessName);
             _reportedDiscoveries.Remove(sample.ProcessName);
         }
+    }
+
+    private static string ResolveDisplayName(DesktopWindowSample sample)
+    {
+        if (string.IsNullOrWhiteSpace(sample.ProcessPath))
+        {
+            return sample.ProcessName;
+        }
+
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(sample.ProcessPath);
+            var description = info.FileDescription;
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                return description.Trim();
+            }
+            var product = info.ProductName;
+            if (!string.IsNullOrWhiteSpace(product))
+            {
+                return product.Trim();
+            }
+        }
+        catch
+        {
+            // ignore and fall back to process name
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(sample.ProcessPath);
+        return string.IsNullOrWhiteSpace(fileName) ? sample.ProcessName : fileName;
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
