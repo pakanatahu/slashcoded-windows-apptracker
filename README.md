@@ -1,15 +1,14 @@
 # Slashcoded.DesktopTracker
 
-Windows desktop activity tracker used by Slashcoded Desktop. It measures foreground app usage on Windows, normalizes it into "desktop activity" events, and uploads them to the local Slashcoded API so the SQLite DB and reports stay in sync.
+Windows desktop activity tracker used by Slashcoded Desktop. It measures foreground app focus on Windows and uploads neutral host-surface `app` events to the local Slashcoded API `v2` ingestion contract.
 
 ## What it does
 
 - Polls the active window/process at a regular interval.
 - Resolves the app/process into a stable name.
-- Polls the local API for the allowlist on a regular cadence and keeps a local in-memory cache.
-- Checks the cached allowlist to decide whether a process is approved for tracking (not per-upload).
-- Only when the app is allowlisted does it measure elapsed activity and upload events.
-- Emits events in the same shape as other Slashcoded sources and sends them to the local API so they are stored and aggregated.
+- Segments the current foreground app into 5-30 second focus slices.
+- Emits neutral `contractVersion = "v2"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
+- Polls the local API allowlist on a regular cadence only to suppress duplicate discovery reports for known apps.
 - Registers a trusted source once and signs each upload with trust headers.
 
 ## Configuration
@@ -17,9 +16,9 @@ Windows desktop activity tracker used by Slashcoded Desktop. It measures foregro
 Set these under `Tracker` in `appsettings.json`:
 
 - `ApiBaseUrl`: Base URL for the local API.
-- `UserId`: User identifier sent with events.
 - `HeartbeatIntervalSeconds`: Polling interval for foreground window checks.
-- `FlushIntervalMinutes`: Upload chunk size for continuous activity.
+- `FlushIntervalSeconds`: Preferred upload chunk size for continuous activity. The tracker clamps this to the supported 5-30 second range.
+- `FlushIntervalMinutes`: Legacy fallback if `FlushIntervalSeconds` is unset. Legacy values are converted into the same 5-30 second range.
 - `SleepGapThresholdMinutes`: Gap duration that triggers a reset of tracking state.
 
 ## How Slashcoded uses it
@@ -72,7 +71,7 @@ METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256_BASE64(ra
 
 The tracker signs exact outbound body bytes and regenerates timestamp/nonce/signature on retry.
 
-### Allowlist contract
+### Allowlist and discovery contract
 
 The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/allowlist` and return JSON like:
 
@@ -88,23 +87,36 @@ The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/a
 }
 ```
 
+Known apps in the allowlist are not re-reported to the discovery endpoint. The allowlist no longer controls whether focus events are uploaded.
+
+Unknown apps can still be reported to:
+
+`POST {ApiBaseUrl}/api/desktop/apps/discover`
+
 ### Data contract
 
-The request body is an object with an `events` array. Each event uses the following shape:
+The request body is an object with `contractVersion = "v2"` and an `events` array. Each event uses the following shape:
 
 ```json
 {
+  "contractVersion": "v2",
   "events": [
     {
-      "userId": "local",
       "source": "desktop",
-      "occurredAt": "2026-01-10T22:22:01.7304875+07:00",
-      "durationMs": 60000,
-      "processName": "explorer",
+      "occurredAt": "2026-03-14T08:31:30.0000000Z",
+      "durationMs": 15000,
+      "project": null,
+      "category": "app",
       "payload": {
+        "type": "app",
+        "event_id": "desktop-9f7d0f4e1710405075000",
+        "process": "explorer.exe",
+        "processName": "explorer.exe",
         "processPath": "C:\\\\WINDOWS\\\\Explorer.EXE",
+        "displayName": "Windows Explorer",
         "windowTitle": "",
-        "duration_ms": 60000
+        "segment_start_ts": 1710405075000,
+        "segment_end_ts": 1710405090000
       }
     }
   ]
@@ -113,9 +125,12 @@ The request body is an object with an `events` array. Each event uses the follow
 
 Notes:
 
-- `occurredAt` uses ISO 8601 format.
-- `durationMs` and `payload.duration_ms` are in milliseconds (rounded from seconds).
-- `processName` is the process name, and `payload.processPath` is the full path when available.
+- `occurredAt` is UTC ISO 8601 and must match the segment end time.
+- `durationMs` must equal `payload.segment_end_ts - payload.segment_start_ts`.
+- `category` is always neutral `"app"`.
+- `payload.event_id` is deterministic for a given segment and reused on retry.
+- `payload.process` and `payload.processName` are normalized executable names such as `chrome.exe`.
+- `payload.processPath` and `payload.displayName` are recommended metadata when available.
 - Upload payloads above `16KB` are rejected client-side.
 
 The tracker is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the tracker to capture Windows app usage and feed your system.
@@ -124,4 +139,4 @@ The tracker is designed to be source-agnostic. If your app exposes an HTTP API t
 
 - It is Windows-only.
 - Data stays on the local machine unless your API forwards it elsewhere.
-- This service is not standalone; without a local API that provides the allowlist and accepts uploads, it will not record or report activity.
+- This service is not standalone; without a local API that accepts uploads, it will not record useful activity. Discovery deduplication also expects the allowlist endpoint.

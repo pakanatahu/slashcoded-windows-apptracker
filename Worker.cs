@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 namespace Slashcoded.DesktopTracker;
 
 public sealed class Worker : BackgroundService
@@ -23,7 +25,6 @@ public sealed class Worker : BackgroundService
     private DateTimeOffset _allowlistExpires = DateTimeOffset.MinValue;
     private DesktopWindowSample? _activeSample;
     private DateTimeOffset? _activeStart;
-    private bool _activeAllowed;
     private volatile bool _sleeping;
     private volatile bool _resetAfterResume;
     private DateTimeOffset _lastLoop = DateTimeOffset.MinValue;
@@ -40,7 +41,7 @@ public sealed class Worker : BackgroundService
         _logger = logger;
         _monitor = new ActiveWindowMonitor();
         _heartbeatInterval = TimeSpan.FromSeconds(Math.Max(1, _options.HeartbeatIntervalSeconds));
-        _flushInterval = TimeSpan.FromMinutes(Math.Clamp(_options.FlushIntervalMinutes, 1, 24 * 60));
+        _flushInterval = ResolveFlushInterval(_options);
         _sleepGapThreshold = TimeSpan.FromMinutes(Math.Max(1, _options.SleepGapThresholdMinutes));
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
@@ -60,7 +61,6 @@ public sealed class Worker : BackgroundService
             {
                 _activeSample = null;
                 _activeStart = null;
-                _activeAllowed = false;
                 _resetAfterResume = false;
                 _lastLoop = DateTimeOffset.MinValue;
             }
@@ -75,7 +75,6 @@ public sealed class Worker : BackgroundService
                     _logger.LogInformation("Detected long inactivity gap ({Gap}) - resetting tracker state", gap);
                     _activeSample = null;
                     _activeStart = null;
-                    _activeAllowed = false;
                 }
             }
             _lastLoop = now;
@@ -83,7 +82,7 @@ public sealed class Worker : BackgroundService
             if (_activeSample is null && sample is not null)
             {
                 _activeSample = sample;
-                _activeAllowed = await EvaluatePermissionAsync(sample, stoppingToken);
+                await ReportDiscoveryIfNeededAsync(sample, stoppingToken);
                 _activeStart = now;
                 _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
                     sample.ProcessName,
@@ -100,7 +99,7 @@ public sealed class Worker : BackgroundService
             {
                 await FlushElapsedAsync(now, stoppingToken, true);
                 _activeSample = sample;
-                _activeAllowed = await EvaluatePermissionAsync(sample, stoppingToken);
+                await ReportDiscoveryIfNeededAsync(sample, stoppingToken);
                 _activeStart = now;
                 _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
                     sample.ProcessName,
@@ -133,34 +132,29 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        await RefreshActivePermissionAsync(cancellationToken);
-        if (!_activeAllowed)
-        {
-            _activeStart = now;
-            return;
-        }
-
         var start = _activeStart.Value;
         var elapsed = now - start;
 
         while (elapsed >= _flushInterval)
         {
-            await PublishEventAsync(_activeSample, _flushInterval, start, cancellationToken);
-            start = start.Add(_flushInterval);
+            var segmentEnd = start.Add(_flushInterval);
+            await PublishEventAsync(_activeSample, start, segmentEnd, cancellationToken);
+            start = segmentEnd;
             elapsed = now - start;
         }
 
         if (flushAll && elapsed > TimeSpan.Zero)
         {
-            await PublishEventAsync(_activeSample, elapsed, start, cancellationToken);
+            await PublishEventAsync(_activeSample, start, now, cancellationToken);
             start = now;
         }
 
         _activeStart = start;
     }
 
-    private async Task PublishEventAsync(DesktopWindowSample sample, TimeSpan duration, DateTimeOffset occurredAt, CancellationToken cancellationToken)
+    private async Task PublishEventAsync(DesktopWindowSample sample, DateTimeOffset segmentStart, DateTimeOffset segmentEnd, CancellationToken cancellationToken)
     {
+        var duration = segmentEnd - segmentStart;
         if (duration < TimeSpan.FromSeconds(1))
         {
             _logger.LogDebug("Skipping upload below minimum duration for {Process}", sample.ProcessName);
@@ -171,24 +165,42 @@ public sealed class Worker : BackgroundService
         {
             _logger.LogWarning("Clamping oversized activity duration for {Process} from {Duration} to 24h", sample.ProcessName, duration);
             duration = TimeSpan.FromHours(24);
+            segmentEnd = segmentStart.Add(duration);
         }
 
-        var durationMs = Math.Max(1, (long)Math.Round(duration.TotalSeconds * 1000));
+        var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var processDisplayName = ResolveDisplayName(sample);
+        var segmentStartTs = segmentStart.ToUnixTimeMilliseconds();
+        var segmentEndTs = segmentEnd.ToUnixTimeMilliseconds();
+        var durationMs = segmentEndTs - segmentStartTs;
+        if (durationMs <= 0)
+        {
+            _logger.LogDebug("Skipping zero-length segment for {Process}", normalizedProcessName);
+            return;
+        }
+
         var durationSeconds = Math.Max(1, (int)Math.Round(duration.TotalSeconds));
         var payload = new
         {
+            contractVersion = "v2",
             events = new[]
             {
                 new {
-                    userId = _options.UserId ?? "local",
                     source = "desktop",
-                    occurredAt = occurredAt.ToString("O"),
+                    occurredAt = segmentEnd.ToUniversalTime().ToString("O"),
                     durationMs = durationMs,
-                    processName = sample.ProcessName,
+                    project = (string?)null,
+                    category = "app",
                     payload = new {
+                        type = "app",
+                        event_id = BuildEventId(normalizedProcessName, sample.WindowTitle, segmentStartTs, segmentEndTs),
+                        process = normalizedProcessName,
+                        processName = normalizedProcessName,
                         processPath = sample.ProcessPath,
+                        displayName = processDisplayName,
                         windowTitle = sample.WindowTitle,
-                        duration_ms = durationMs
+                        segment_start_ts = segmentStartTs,
+                        segment_end_ts = segmentEndTs
                     }
                 }
             }
@@ -205,26 +217,15 @@ public sealed class Worker : BackgroundService
         }
     }
 
-    private async Task<bool> EvaluatePermissionAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
+    private async Task ReportDiscoveryIfNeededAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
         await EnsureAllowlistAsync(cancellationToken);
-        if (_allowlist.ContainsKey(sample.ProcessName))
+        if (_allowlist.ContainsKey(NormalizeProcessName(sample.ProcessName, sample.ProcessPath)))
         {
-            return true;
-        }
-        await ReportDiscoveryAsync(sample, cancellationToken);
-        return false;
-    }
-
-    private async Task RefreshActivePermissionAsync(CancellationToken cancellationToken)
-    {
-        if (_activeSample is null)
-        {
-            _activeAllowed = false;
             return;
         }
-        await EnsureAllowlistAsync(cancellationToken);
-        _activeAllowed = _allowlist.ContainsKey(_activeSample.ProcessName);
+
+        await ReportDiscoveryAsync(sample, cancellationToken);
     }
 
     private async Task EnsureAllowlistAsync(CancellationToken cancellationToken)
@@ -243,7 +244,10 @@ public sealed class Worker : BackgroundService
             _allowlist.Clear();
             foreach (var app in dto.Apps)
             {
-                _allowlist[app.ProcessName] = true;
+                if (!string.IsNullOrWhiteSpace(app.ProcessName))
+                {
+                    _allowlist[NormalizeProcessName(app.ProcessName, null)] = true;
+                }
             }
             _allowlistExpires = DateTimeOffset.UtcNow.Add(AllowlistTtl);
         }
@@ -256,7 +260,8 @@ public sealed class Worker : BackgroundService
 
     private async Task ReportDiscoveryAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
-        if (!_reportedDiscoveries.Add(sample.ProcessName))
+        var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        if (!_reportedDiscoveries.Add(normalizedProcessName))
         {
             return;
         }
@@ -266,7 +271,7 @@ public sealed class Worker : BackgroundService
             var displayName = ResolveDisplayName(sample);
             var payload = new
             {
-                processName = sample.ProcessName,
+                processName = normalizedProcessName,
                 displayName
             };
             var client = _httpClientFactory.CreateClient();
@@ -275,8 +280,8 @@ public sealed class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to report desktop app discovery for {App}", sample.ProcessName);
-            _reportedDiscoveries.Remove(sample.ProcessName);
+            _logger.LogDebug(ex, "Failed to report desktop app discovery for {App}", normalizedProcessName);
+            _reportedDiscoveries.Remove(normalizedProcessName);
         }
     }
 
@@ -308,6 +313,57 @@ public sealed class Worker : BackgroundService
 
         var fileName = Path.GetFileNameWithoutExtension(sample.ProcessPath);
         return string.IsNullOrWhiteSpace(fileName) ? sample.ProcessName : fileName;
+    }
+
+    private static TimeSpan ResolveFlushInterval(TrackerOptions options)
+    {
+        if (options.FlushIntervalSeconds > 0)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(options.FlushIntervalSeconds, 5, 30));
+        }
+
+        if (options.FlushIntervalMinutes > 0)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(options.FlushIntervalMinutes * 60, 5, 30));
+        }
+
+        return TimeSpan.FromSeconds(15);
+    }
+
+    private static string NormalizeProcessName(string processName, string? processPath)
+    {
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            var fileName = Path.GetFileName(processPath);
+            if (!string.IsNullOrWhiteSpace(fileName))
+            {
+                return fileName;
+            }
+        }
+
+        if (processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return processName;
+        }
+
+        return processName + ".exe";
+    }
+
+    private static string BuildEventId(string processName, string windowTitle, long segmentStartTs, long segmentEndTs)
+    {
+        var key = string.Join("|",
+            Environment.MachineName,
+            processName,
+            segmentStartTs.ToString(),
+            segmentEndTs.ToString(),
+            ComputeSha256Hex(windowTitle));
+        return $"desktop-{ComputeSha256Hex(key)}";
+    }
+
+    private static string ComputeSha256Hex(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
