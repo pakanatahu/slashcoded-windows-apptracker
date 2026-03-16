@@ -44,6 +44,12 @@ public sealed class TrustedSourceCredentialStore
 
             return new TrustedSourceCredentials(persisted.SourceId, secretBytes);
         }
+        catch (CryptographicException ex)
+        {
+            _logger.LogWarning(ex, "Stored trusted source credentials are no longer readable; removing and re-enrolling.");
+            DeleteCredentialFileIfPresent();
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unable to read trusted source credentials");
@@ -79,6 +85,21 @@ public sealed class TrustedSourceCredentialStore
         }
 
         return Task.CompletedTask;
+    }
+
+    private void DeleteCredentialFileIfPresent()
+    {
+        try
+        {
+            if (File.Exists(_credentialFilePath))
+            {
+                File.Delete(_credentialFilePath);
+            }
+        }
+        catch (Exception deleteEx)
+        {
+            _logger.LogWarning(deleteEx, "Unable to remove unreadable trusted source credentials");
+        }
     }
 
     private sealed record PersistedCredentials(string SourceId, string ProtectedSecret);
