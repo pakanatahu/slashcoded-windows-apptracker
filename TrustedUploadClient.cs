@@ -11,7 +11,7 @@ using System.Text.Json;
 
 namespace Slashcoded.DesktopTracker;
 
-public sealed class TrustedUploadClient
+public sealed class TrustedUploadClient : ITrustedUploadClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const int MaxUploadAttempts = 3;

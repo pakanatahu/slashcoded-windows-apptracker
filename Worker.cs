@@ -1,12 +1,9 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Win32;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
 namespace Slashcoded.DesktopTracker;
 
 public sealed class Worker : BackgroundService
@@ -14,11 +11,13 @@ public sealed class Worker : BackgroundService
     private static readonly TimeSpan AllowlistTtl = TimeSpan.FromMinutes(1);
     private readonly ILogger<Worker> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly TrustedUploadClient _trustedUploadClient;
+    private readonly ITrustedUploadClient _trustedUploadClient;
+    private readonly IHostTrackingConfigProvider _hostTrackingConfigProvider;
+    private readonly ISystemClock _clock;
+    private readonly IIdleMonitor _idleMonitor;
     private readonly TrackerOptions _options;
-    private readonly ActiveWindowMonitor _monitor;
+    private readonly IActiveWindowMonitor _monitor;
     private readonly TimeSpan _heartbeatInterval;
-    private readonly TimeSpan _flushInterval;
     private readonly TimeSpan _sleepGapThreshold;
     private readonly Dictionary<string, bool> _allowlist = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _reportedDiscoveries = new(StringComparer.OrdinalIgnoreCase);
@@ -28,89 +27,151 @@ public sealed class Worker : BackgroundService
     private volatile bool _sleeping;
     private volatile bool _resetAfterResume;
     private DateTimeOffset _lastLoop = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextConfigRefresh = DateTimeOffset.MinValue;
+    private bool _configInitialized;
 
     public Worker(
         IHttpClientFactory httpClientFactory,
-        TrustedUploadClient trustedUploadClient,
+        ITrustedUploadClient trustedUploadClient,
+        IHostTrackingConfigProvider hostTrackingConfigProvider,
+        ISystemClock clock,
+        IIdleMonitor idleMonitor,
+        IActiveWindowMonitor monitor,
         IOptions<TrackerOptions> options,
         ILogger<Worker> logger)
     {
         _httpClientFactory = httpClientFactory;
         _trustedUploadClient = trustedUploadClient;
+        _hostTrackingConfigProvider = hostTrackingConfigProvider;
+        _clock = clock;
+        _idleMonitor = idleMonitor;
         _options = options.Value;
         _logger = logger;
-        _monitor = new ActiveWindowMonitor();
         _heartbeatInterval = TimeSpan.FromSeconds(Math.Max(1, _options.HeartbeatIntervalSeconds));
-        _flushInterval = ResolveFlushInterval(_options);
         _sleepGapThreshold = TimeSpan.FromMinutes(Math.Max(1, _options.SleepGapThresholdMinutes));
+        _monitor = monitor;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            if (_sleeping)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                _lastLoop = DateTimeOffset.MinValue;
+                await TickAsync(stoppingToken);
                 await Task.Delay(_heartbeatInterval, stoppingToken);
-                continue;
             }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal service shutdown.
+        }
+        finally
+        {
+            await FlushElapsedAsync(_clock.Now, CancellationToken.None, true, _hostTrackingConfigProvider.Current);
+        }
+    }
 
-            if (_resetAfterResume)
-            {
-                _activeSample = null;
-                _activeStart = null;
-                _resetAfterResume = false;
-                _lastLoop = DateTimeOffset.MinValue;
-            }
-
-            var sample = _monitor.TryCapture();
-            var now = sample?.CapturedAt ?? DateTimeOffset.Now;
-            if (_lastLoop != DateTimeOffset.MinValue)
-            {
-                var gap = now - _lastLoop;
-                if (gap > _sleepGapThreshold)
-                {
-                    _logger.LogInformation("Detected long inactivity gap ({Gap}) - resetting tracker state", gap);
-                    _activeSample = null;
-                    _activeStart = null;
-                }
-            }
-            _lastLoop = now;
-
-            if (_activeSample is null && sample is not null)
-            {
-                _activeSample = sample;
-                await ReportDiscoveryIfNeededAsync(sample, stoppingToken);
-                _activeStart = now;
-                _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
-                    sample.ProcessName,
-                    sample.ProcessPath ?? "unknown",
-                    sample.WindowTitle);
-            }
-
-            if (_activeSample is not null && _activeStart.HasValue)
-            {
-                await FlushElapsedAsync(now, stoppingToken, false);
-            }
-
-            if (sample is not null && HasChanged(sample))
-            {
-                await FlushElapsedAsync(now, stoppingToken, true);
-                _activeSample = sample;
-                await ReportDiscoveryIfNeededAsync(sample, stoppingToken);
-                _activeStart = now;
-                _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
-                    sample.ProcessName,
-                    sample.ProcessPath ?? "unknown",
-                    sample.WindowTitle);
-            }
-
-            await Task.Delay(_heartbeatInterval, stoppingToken);
+    internal async Task TickAsync(CancellationToken cancellationToken)
+    {
+        if (!_configInitialized)
+        {
+            await _hostTrackingConfigProvider.InitializeAsync(cancellationToken);
+            _configInitialized = true;
+            _nextConfigRefresh = _clock.Now.Add(_hostTrackingConfigProvider.RefreshInterval);
         }
 
-        await FlushElapsedAsync(DateTimeOffset.Now, stoppingToken, true);
+        if (_sleeping)
+        {
+            _lastLoop = DateTimeOffset.MinValue;
+            return;
+        }
+
+        if (_resetAfterResume)
+        {
+            ResetActiveTracking();
+            _resetAfterResume = false;
+            _lastLoop = DateTimeOffset.MinValue;
+        }
+
+        var sample = _monitor.TryCapture();
+        var now = sample?.CapturedAt ?? _clock.Now;
+
+        if (now >= _nextConfigRefresh)
+        {
+            await _hostTrackingConfigProvider.RefreshAsync(cancellationToken);
+            _nextConfigRefresh = now.Add(_hostTrackingConfigProvider.RefreshInterval);
+        }
+
+        var config = _hostTrackingConfigProvider.Current;
+
+        if (_lastLoop != DateTimeOffset.MinValue)
+        {
+            var gap = now - _lastLoop;
+            if (gap > _sleepGapThreshold)
+            {
+                _logger.LogInformation("Detected long inactivity gap ({Gap}) - resetting tracker state", gap);
+                ResetActiveTracking();
+                _lastLoop = now;
+                return;
+            }
+        }
+
+        var idleDuration = _idleMonitor.GetIdleDuration();
+        if (idleDuration >= TimeSpan.FromSeconds(config.IdleThresholdSeconds))
+        {
+            var idleCutoff = now.Subtract(idleDuration).AddSeconds(config.IdleThresholdSeconds);
+            if (_activeStart.HasValue && idleCutoff < _activeStart.Value)
+            {
+                idleCutoff = _activeStart.Value;
+            }
+
+            await FlushElapsedAsync(idleCutoff, cancellationToken, true, config);
+            ResetActiveTracking();
+            _lastLoop = now;
+            return;
+        }
+
+        if (_activeSample is null)
+        {
+            if (sample is not null)
+            {
+                await StartActiveSampleAsync(sample, now, cancellationToken);
+            }
+
+            _lastLoop = now;
+            return;
+        }
+
+        if (sample is not null && HasChanged(sample))
+        {
+            await FlushElapsedAsync(now, cancellationToken, true, config);
+            await StartActiveSampleAsync(sample, now, cancellationToken);
+        }
+        else
+        {
+            await FlushElapsedAsync(now, cancellationToken, false, config);
+        }
+
+        _lastLoop = now;
+    }
+
+    private async Task StartActiveSampleAsync(DesktopWindowSample sample, DateTimeOffset start, CancellationToken cancellationToken)
+    {
+        _activeSample = sample;
+        await ReportDiscoveryIfNeededAsync(sample, cancellationToken);
+        _activeStart = start;
+        _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
+            sample.ProcessName,
+            sample.ProcessPath ?? "unknown",
+            sample.WindowTitle);
+    }
+
+    private void ResetActiveTracking()
+    {
+        _activeSample = null;
+        _activeStart = null;
     }
 
     private bool HasChanged(DesktopWindowSample sample)
@@ -125,7 +186,7 @@ public sealed class Worker : BackgroundService
             || !string.Equals(sample.ProcessPath, _activeSample.ProcessPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task FlushElapsedAsync(DateTimeOffset now, CancellationToken cancellationToken, bool flushAll)
+    private async Task FlushElapsedAsync(DateTimeOffset now, CancellationToken cancellationToken, bool flushAll, HostTrackingConfig config)
     {
         if (_activeSample is null || !_activeStart.HasValue)
         {
@@ -135,24 +196,26 @@ public sealed class Worker : BackgroundService
         var start = _activeStart.Value;
         var elapsed = now - start;
 
-        while (elapsed >= _flushInterval)
+        var segmentDuration = TimeSpan.FromSeconds(config.SegmentDurationSeconds);
+
+        while (elapsed >= segmentDuration)
         {
-            var segmentEnd = start.Add(_flushInterval);
-            await PublishEventAsync(_activeSample, start, segmentEnd, cancellationToken);
+            var segmentEnd = start.Add(segmentDuration);
+            await PublishEventAsync(_activeSample, start, segmentEnd, config, cancellationToken);
             start = segmentEnd;
             elapsed = now - start;
         }
 
         if (flushAll && elapsed > TimeSpan.Zero)
         {
-            await PublishEventAsync(_activeSample, start, now, cancellationToken);
+            await PublishEventAsync(_activeSample, start, now, config, cancellationToken);
             start = now;
         }
 
         _activeStart = start;
     }
 
-    private async Task PublishEventAsync(DesktopWindowSample sample, DateTimeOffset segmentStart, DateTimeOffset segmentEnd, CancellationToken cancellationToken)
+    private async Task PublishEventAsync(DesktopWindowSample sample, DateTimeOffset segmentStart, DateTimeOffset segmentEnd, HostTrackingConfig config, CancellationToken cancellationToken)
     {
         var duration = segmentEnd - segmentStart;
         if (duration < TimeSpan.FromSeconds(1))
@@ -161,50 +224,15 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        if (duration > TimeSpan.FromHours(24))
-        {
-            _logger.LogWarning("Clamping oversized activity duration for {Process} from {Duration} to 24h", sample.ProcessName, duration);
-            duration = TimeSpan.FromHours(24);
-            segmentEnd = segmentStart.Add(duration);
-        }
-
-        var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
-        var processDisplayName = ResolveDisplayName(sample);
-        var segmentStartTs = segmentStart.ToUnixTimeMilliseconds();
-        var segmentEndTs = segmentEnd.ToUnixTimeMilliseconds();
-        var durationMs = segmentEndTs - segmentStartTs;
-        if (durationMs <= 0)
+        var normalizedProcessName = TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var payload = TrackingEventBuilder.Build(sample, segmentStart, segmentEnd, config);
+        if (payload is null)
         {
             _logger.LogDebug("Skipping zero-length segment for {Process}", normalizedProcessName);
             return;
         }
 
-        var durationSeconds = Math.Max(1, (int)Math.Round(duration.TotalSeconds));
-        var payload = new
-        {
-            contractVersion = "v2",
-            events = new[]
-            {
-                new {
-                    source = "desktop",
-                    occurredAt = segmentEnd.ToUniversalTime().ToString("O"),
-                    durationMs = durationMs,
-                    project = (string?)null,
-                    category = "app",
-                    payload = new {
-                        type = "app",
-                        event_id = BuildEventId(normalizedProcessName, sample.WindowTitle, segmentStartTs, segmentEndTs),
-                        process = normalizedProcessName,
-                        processName = normalizedProcessName,
-                        processPath = sample.ProcessPath,
-                        displayName = processDisplayName,
-                        windowTitle = sample.WindowTitle,
-                        segment_start_ts = segmentStartTs,
-                        segment_end_ts = segmentEndTs
-                    }
-                }
-            }
-        };
+        var durationSeconds = Math.Max(1, (int)Math.Round(payload.Events[0].DurationMs / 1000.0));
 
         try
         {
@@ -220,7 +248,7 @@ public sealed class Worker : BackgroundService
     private async Task ReportDiscoveryIfNeededAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
         await EnsureAllowlistAsync(cancellationToken);
-        if (_allowlist.ContainsKey(NormalizeProcessName(sample.ProcessName, sample.ProcessPath)))
+        if (_allowlist.ContainsKey(TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath)))
         {
             return;
         }
@@ -246,7 +274,7 @@ public sealed class Worker : BackgroundService
             {
                 if (!string.IsNullOrWhiteSpace(app.ProcessName))
                 {
-                    _allowlist[NormalizeProcessName(app.ProcessName, null)] = true;
+                    _allowlist[TrackingEventBuilder.NormalizeProcessName(app.ProcessName, null)] = true;
                 }
             }
             _allowlistExpires = DateTimeOffset.UtcNow.Add(AllowlistTtl);
@@ -260,7 +288,7 @@ public sealed class Worker : BackgroundService
 
     private async Task ReportDiscoveryAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
-        var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var normalizedProcessName = TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         if (!_reportedDiscoveries.Add(normalizedProcessName))
         {
             return;
@@ -285,86 +313,11 @@ public sealed class Worker : BackgroundService
         }
     }
 
-    private static string ResolveDisplayName(DesktopWindowSample sample)
-    {
-        if (string.IsNullOrWhiteSpace(sample.ProcessPath))
-        {
-            return sample.ProcessName;
-        }
-
-        try
-        {
-            var info = FileVersionInfo.GetVersionInfo(sample.ProcessPath);
-            var description = info.FileDescription;
-            if (!string.IsNullOrWhiteSpace(description))
-            {
-                return description.Trim();
-            }
-            var product = info.ProductName;
-            if (!string.IsNullOrWhiteSpace(product))
-            {
-                return product.Trim();
-            }
-        }
-        catch
-        {
-            // ignore and fall back to process name
-        }
-
-        var fileName = Path.GetFileNameWithoutExtension(sample.ProcessPath);
-        return string.IsNullOrWhiteSpace(fileName) ? sample.ProcessName : fileName;
-    }
-
-    private static TimeSpan ResolveFlushInterval(TrackerOptions options)
-    {
-        if (options.FlushIntervalSeconds > 0)
-        {
-            return TimeSpan.FromSeconds(Math.Clamp(options.FlushIntervalSeconds, 5, 30));
-        }
-
-        if (options.FlushIntervalMinutes > 0)
-        {
-            return TimeSpan.FromSeconds(Math.Clamp(options.FlushIntervalMinutes * 60, 5, 30));
-        }
-
-        return TimeSpan.FromSeconds(15);
-    }
-
-    private static string NormalizeProcessName(string processName, string? processPath)
-    {
-        if (!string.IsNullOrWhiteSpace(processPath))
-        {
-            var fileName = Path.GetFileName(processPath);
-            if (!string.IsNullOrWhiteSpace(fileName))
-            {
-                return fileName;
-            }
-        }
-
-        if (processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return processName;
-        }
-
-        return processName + ".exe";
-    }
-
-    private static string BuildEventId(string processName, string windowTitle, long segmentStartTs, long segmentEndTs)
-    {
-        var key = string.Join("|",
-            Environment.MachineName,
-            processName,
-            segmentStartTs.ToString(),
-            segmentEndTs.ToString(),
-            ComputeSha256Hex(windowTitle));
-        return $"desktop-{ComputeSha256Hex(key)}";
-    }
-
-    private static string ComputeSha256Hex(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
+    private static string ResolveDisplayName(DesktopWindowSample sample) =>
+        TrackingEventBuilder.Build(sample, sample.CapturedAt, sample.CapturedAt.AddSeconds(1), HostTrackingConfig.Default)
+            ?.Events[0]
+            .Payload
+            .DisplayName ?? sample.ProcessName;
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {

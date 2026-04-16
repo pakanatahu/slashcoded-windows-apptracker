@@ -6,7 +6,9 @@ Windows desktop activity tracker used by Slashcoded Desktop. It measures foregro
 
 - Polls the active window/process at a regular interval.
 - Resolves the app/process into a stable name.
-- Segments the current foreground app into 5-30 second focus slices.
+- Fetches shared host timing from the local API before foreground tracking starts.
+- Segments the current foreground app using the host `segmentDurationSeconds` value.
+- Stops emitting focused app slices when idle time reaches the host `idleThresholdSeconds` value.
 - Emits neutral `contractVersion = "v2"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
 - Polls the local API allowlist on a regular cadence only to suppress duplicate discovery reports for known apps.
 - Registers a trusted source once and signs each upload with trust headers.
@@ -17,9 +19,22 @@ Set these under `Tracker` in `appsettings.json`:
 
 - `ApiBaseUrl`: Base URL for the local API.
 - `HeartbeatIntervalSeconds`: Polling interval for foreground window checks.
-- `FlushIntervalSeconds`: Preferred upload chunk size for continuous activity. The tracker clamps this to the supported 5-30 second range.
-- `FlushIntervalMinutes`: Legacy fallback if `FlushIntervalSeconds` is unset. Legacy values are converted into the same 5-30 second range.
 - `SleepGapThresholdMinutes`: Gap duration that triggers a reset of tracking state.
+
+Segment duration and idle cutoff are not local tracker settings. The tracker discovers them from:
+
+- `GET {ApiBaseUrl}/api/host/handshake`
+- `GET {ApiBaseUrl}/api/host/tracking-config`
+
+Startup order:
+
+1. Discover the local API with `/api/host/handshake`.
+2. Fetch `/api/host/tracking-config`.
+3. Cache the config in memory.
+4. Start foreground app tracking with that config.
+5. Refresh the config every 5 minutes.
+
+If startup or refresh fails, the tracker keeps the last known good config. Before the first successful fetch, it uses the shared defaults: `segmentDurationSeconds = 15` and `idleThresholdSeconds = 300`.
 
 ## How Slashcoded uses it
 
@@ -34,6 +49,28 @@ Slashcoded Desktop runs this tracker as a background process. The local API rece
 ## Integration guide
 
 The tracker posts JSON to the local API at `POST {ApiBaseUrl}/api/upload`.
+
+### Shared timing contract
+
+The local API must expose `GET {ApiBaseUrl}/api/host/tracking-config` and return JSON like:
+
+```json
+{
+  "segmentDurationSeconds": 15,
+  "idleThresholdSeconds": 300,
+  "configVersion": "2026-04-14T00:00:00.0000000Z",
+  "updatedAt": "2026-04-14T00:00:00.0000000Z"
+}
+```
+
+Foreground app event rules:
+
+- A segment never exceeds `segmentDurationSeconds`.
+- `durationMs` equals `payload.segment_end_ts - payload.segment_start_ts`.
+- `occurredAt` is the segment end time in UTC.
+- Process or window-title identity changes close the current segment and start a new one.
+- Idle cutoff closes the current segment and suppresses further focused slices until activity returns.
+- User return after idle starts a new segment instead of extending the pre-idle segment.
 
 ### Trusted source enrollment
 
@@ -116,7 +153,10 @@ The request body is an object with `contractVersion = "v2"` and an `events` arra
         "displayName": "Windows Explorer",
         "windowTitle": "",
         "segment_start_ts": 1710405075000,
-        "segment_end_ts": 1710405090000
+        "segment_end_ts": 1710405090000,
+        "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",
+        "segmentDurationSeconds": 15,
+        "idleThresholdSeconds": 300
       }
     }
   ]
@@ -131,6 +171,7 @@ Notes:
 - `payload.event_id` is deterministic for a given segment and reused on retry.
 - `payload.process` and `payload.processName` are normalized executable names such as `chrome.exe`.
 - `payload.processPath` and `payload.displayName` are recommended metadata when available.
+- `payload.trackerConfigVersion`, `payload.segmentDurationSeconds`, and `payload.idleThresholdSeconds` are diagnostic metadata showing the timing config used to emit the slice.
 - Upload payloads above `16KB` are rejected client-side.
 
 The tracker is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the tracker to capture Windows app usage and feed your system.
@@ -140,3 +181,4 @@ The tracker is designed to be source-agnostic. If your app exposes an HTTP API t
 - It is Windows-only.
 - Data stays on the local machine unless your API forwards it elsewhere.
 - This service is not standalone; without a local API that accepts uploads, it will not record useful activity. Discovery deduplication also expects the allowlist endpoint.
+- See `CHANGELOG.md` and `docs/releases/` for release notes.

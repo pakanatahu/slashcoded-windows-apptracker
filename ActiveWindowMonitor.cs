@@ -4,7 +4,7 @@ using Vanara.PInvoke;
 
 namespace Slashcoded.DesktopTracker;
 
-public sealed class ActiveWindowMonitor
+public sealed class ActiveWindowMonitor : IActiveWindowMonitor
 {
     public DesktopWindowSample? TryCapture()
     {
