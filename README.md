@@ -68,7 +68,7 @@ Foreground app event rules:
 - A segment never exceeds `segmentDurationSeconds`.
 - `durationMs` equals `payload.segment_end_ts - payload.segment_start_ts`.
 - `occurredAt` is the segment end time in UTC.
-- Process or window-title identity changes close the current segment and start a new one.
+- Process identity changes close the current segment and start a new one.
 - Idle cutoff closes the current segment and suppresses further focused slices until activity returns.
 - User return after idle starts a new segment instead of extending the pre-idle segment.
 
@@ -151,7 +151,6 @@ The request body is an object with `contractVersion = "v2"` and an `events` arra
         "processName": "explorer.exe",
         "processPath": "C:\\\\WINDOWS\\\\Explorer.EXE",
         "displayName": "Windows Explorer",
-        "windowTitle": "",
         "segment_start_ts": 1710405075000,
         "segment_end_ts": 1710405090000,
         "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",

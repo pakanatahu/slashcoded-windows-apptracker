@@ -34,17 +34,32 @@ public sealed class WorkerTimingTests
     {
         var fixture = CreateFixture(HostTrackingConfig.Default);
 
-        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome", title: "One");
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         fixture.Clock.Advance(TimeSpan.FromSeconds(5));
-        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "msedge", title: "Two");
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "msedge");
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         var upload = Assert.Single(fixture.UploadClient.Payloads);
         var request = Assert.IsType<TrackingUploadRequest>(upload);
         Assert.Equal(5_000, request.Events[0].DurationMs);
         Assert.Equal("chrome.exe", request.Events[0].Payload.ProcessName);
+    }
+
+    [Fact]
+    public async Task TitleOnlyChange_DoesNotCloseCurrentSegment()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default);
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        fixture.Clock.Advance(TimeSpan.FromSeconds(5));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
     }
 
     [Fact]
@@ -157,12 +172,11 @@ public sealed class WorkerTimingTests
         return new WorkerFixture(worker, clock, idleMonitor, monitor, uploadClient, configProvider);
     }
 
-    private static DesktopWindowSample Sample(DateTimeOffset capturedAt, string processName = "chrome", string title = "Pull requests")
+    private static DesktopWindowSample Sample(DateTimeOffset capturedAt, string processName = "chrome")
     {
         return new DesktopWindowSample(
             ProcessName: processName,
             ProcessPath: $@"C:\Program Files\{processName}\{processName}.exe",
-            WindowTitle: title,
             CapturedAt: capturedAt);
     }
 

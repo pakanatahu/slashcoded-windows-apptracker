@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using Vanara.PInvoke;
 
 namespace Slashcoded.DesktopTracker;
@@ -14,11 +13,6 @@ public sealed class ActiveWindowMonitor : IActiveWindowMonitor
             return null;
         }
 
-        var titleLength = User32.GetWindowTextLength(hwnd);
-        var buffer = new StringBuilder(titleLength + 1);
-        _ = User32.GetWindowText(hwnd, buffer, buffer.Capacity);
-        var title = buffer.ToString();
-
         User32.GetWindowThreadProcessId(hwnd, out var pid);
         try
         {
@@ -27,7 +21,6 @@ public sealed class ActiveWindowMonitor : IActiveWindowMonitor
             return new DesktopWindowSample(
                 ProcessName: process.ProcessName,
                 ProcessPath: path,
-                WindowTitle: title,
                 CapturedAt: DateTimeOffset.Now);
         }
         catch (Exception)
@@ -49,4 +42,4 @@ public sealed class ActiveWindowMonitor : IActiveWindowMonitor
     }
 }
 
-public record DesktopWindowSample(string ProcessName, string? ProcessPath, string WindowTitle, DateTimeOffset CapturedAt);
+public record DesktopWindowSample(string ProcessName, string? ProcessPath, DateTimeOffset CapturedAt);

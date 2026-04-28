@@ -55,7 +55,7 @@ Shared rules:
 Foreground tracking rules:
 - only the active foreground app should emit a slice
 - if the foreground process changes, close the current segment and open a new one
-- if the window title changes in a way that changes event identity, close the current segment and open a new one
+- window titles are not collected, uploaded, or used for event identity
 - do not emit long backfilled slices after wake, suspension, or delayed flush
 
 Idle rules:
@@ -94,7 +94,6 @@ These fields are for diagnostics and parity checks. They are not trust credentia
         "processName": "chrome.exe",
         "processPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "displayName": "Google Chrome",
-        "windowTitle": "Pull requests - Google Chrome",
         "segment_start_ts": 1713086115000,
         "segment_end_ts": 1713086130000,
         "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",

@@ -30,12 +30,11 @@ public static class TrackingEventBuilder
         var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         var payload = new AppTrackingPayload(
             Type: "app",
-            EventId: BuildEventId(normalizedProcessName, sample.WindowTitle, segmentStartTs, segmentEndTs),
+            EventId: BuildEventId(normalizedProcessName, segmentStartTs, segmentEndTs),
             Process: normalizedProcessName,
             ProcessName: normalizedProcessName,
             ProcessPath: sample.ProcessPath,
             DisplayName: ResolveDisplayName(sample),
-            WindowTitle: sample.WindowTitle,
             SegmentStartTs: segmentStartTs,
             SegmentEndTs: segmentEndTs,
             TrackerConfigVersion: config.ConfigVersion,
@@ -106,14 +105,13 @@ public static class TrackingEventBuilder
         return string.IsNullOrWhiteSpace(fileName) ? sample.ProcessName : fileName;
     }
 
-    private static string BuildEventId(string processName, string windowTitle, long segmentStartTs, long segmentEndTs)
+    private static string BuildEventId(string processName, long segmentStartTs, long segmentEndTs)
     {
         var key = string.Join("|",
             Environment.MachineName,
             processName,
             segmentStartTs.ToString(),
-            segmentEndTs.ToString(),
-            ComputeSha256Hex(windowTitle));
+            segmentEndTs.ToString());
         return $"desktop-{ComputeSha256Hex(key)}";
     }
 

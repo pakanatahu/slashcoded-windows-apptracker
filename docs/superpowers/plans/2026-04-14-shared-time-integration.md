@@ -302,7 +302,7 @@ public static object Build(
 Builder rules:
 - clamp only to `config.SegmentDurationSeconds`
 - never emit non-positive durations
-- preserve `process`, `processName`, `processPath`, `displayName`, `windowTitle`
+- preserve `process`, `processName`, `processPath`, `displayName`
 - keep `category = "app"` and `contractVersion = "v2"`
 
 - [x] **Step 4: Run builder tests and make them pass**
@@ -332,7 +332,7 @@ git commit -m "refactor: extract shared-timing event builder"
 Add tests for:
 - startup uses provider current config before first success fallback changes
 - continuous focus emits slices no longer than `segmentDurationSeconds`
-- process/title change closes the current segment and starts a new one
+- process change closes the current segment and starts a new one
 - idle crossing `idleThresholdSeconds` stops emission
 - return from idle starts a new segment instead of extending the old segment
 - suspend/resume or long loop gaps do not backfill one oversized slice

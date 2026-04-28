@@ -1,6 +1,7 @@
 namespace Slashcoded.DesktopTracker.Tests;
 
 using Slashcoded.DesktopTracker;
+using System.Text.Json;
 using Xunit;
 
 public sealed class TrackingEventBuilderTests
@@ -8,7 +9,6 @@ public sealed class TrackingEventBuilderTests
     private static readonly DesktopWindowSample Sample = new(
         ProcessName: "chrome",
         ProcessPath: @"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        WindowTitle: "Pull requests - Google Chrome",
         CapturedAt: DateTimeOffset.Parse("2026-04-14T09:15:15Z"));
 
     [Fact]
@@ -56,6 +56,20 @@ public sealed class TrackingEventBuilderTests
         Assert.NotNull(request);
         var evt = request.Events[0];
         Assert.Equal(evt.Payload.SegmentEndTs - evt.Payload.SegmentStartTs, evt.DurationMs);
+    }
+
+    [Fact]
+    public void Build_AppEvent_DoesNotSerializeWindowTitle()
+    {
+        var request = TrackingEventBuilder.Build(
+            Sample,
+            DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
+            DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
+            HostTrackingConfig.Default);
+
+        Assert.NotNull(request);
+        var json = JsonSerializer.Serialize(request);
+        Assert.DoesNotContain("windowTitle", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

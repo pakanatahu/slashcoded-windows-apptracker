@@ -162,10 +162,9 @@ public sealed class Worker : BackgroundService
         _activeSample = sample;
         await ReportDiscoveryIfNeededAsync(sample, cancellationToken);
         _activeStart = start;
-        _logger.LogInformation("Active window: {Process} ({Path}) - {Title}",
+        _logger.LogInformation("Active window: {Process} ({Path})",
             sample.ProcessName,
-            sample.ProcessPath ?? "unknown",
-            sample.WindowTitle);
+            sample.ProcessPath ?? "unknown");
     }
 
     private void ResetActiveTracking()
@@ -182,7 +181,6 @@ public sealed class Worker : BackgroundService
         }
 
         return !string.Equals(sample.ProcessName, _activeSample.ProcessName, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(sample.WindowTitle, _activeSample.WindowTitle, StringComparison.Ordinal)
             || !string.Equals(sample.ProcessPath, _activeSample.ProcessPath, StringComparison.OrdinalIgnoreCase);
     }
 

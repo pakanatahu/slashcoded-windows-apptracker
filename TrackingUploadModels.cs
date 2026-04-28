@@ -21,7 +21,6 @@ public sealed record AppTrackingPayload(
     string ProcessName,
     string? ProcessPath,
     string DisplayName,
-    string WindowTitle,
     [property: JsonPropertyName("segment_start_ts")] long SegmentStartTs,
     [property: JsonPropertyName("segment_end_ts")] long SegmentEndTs,
     string? TrackerConfigVersion,
