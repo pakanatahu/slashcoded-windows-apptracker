@@ -28,6 +28,7 @@ public static class TrackingEventBuilder
         }
 
         var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var timezone = TimezoneMetadataProvider.Capture(segmentEnd);
         var payload = new AppTrackingPayload(
             Type: "app",
             EventId: BuildEventId(normalizedProcessName, segmentStartTs, segmentEndTs),
@@ -51,7 +52,11 @@ public static class TrackingEventBuilder
                     DurationMs: durationMs,
                     Project: null,
                     Category: "app",
-                    Payload: payload)
+                    Payload: payload,
+                    Timezone: timezone.Timezone,
+                    TimezoneOffsetMinutes: timezone.TimezoneOffsetMinutes,
+                    TimezoneSource: timezone.TimezoneSource,
+                    WindowsTimezone: timezone.WindowsTimezone)
             ]);
     }
 

@@ -12,7 +12,11 @@ public sealed record TrackingUploadEvent(
     long DurationMs,
     string? Project,
     string Category,
-    AppTrackingPayload Payload);
+    AppTrackingPayload Payload,
+    string? Timezone = null,
+    int? TimezoneOffsetMinutes = null,
+    string? TimezoneSource = null,
+    string? WindowsTimezone = null);
 
 public sealed record AppTrackingPayload(
     string Type,

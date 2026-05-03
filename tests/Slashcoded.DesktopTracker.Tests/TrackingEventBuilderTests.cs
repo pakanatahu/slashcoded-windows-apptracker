@@ -59,6 +59,22 @@ public sealed class TrackingEventBuilderTests
     }
 
     [Fact]
+    public void Build_AppEvent_IncludesProducerTimezoneMetadata()
+    {
+        var request = TrackingEventBuilder.Build(
+            Sample,
+            DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
+            DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
+            HostTrackingConfig.Default);
+
+        Assert.NotNull(request);
+        var evt = request.Events[0];
+        Assert.Equal("producer", evt.TimezoneSource);
+        Assert.NotNull(evt.WindowsTimezone);
+        Assert.InRange(evt.TimezoneOffsetMinutes.GetValueOrDefault(), -720, 840);
+    }
+
+    [Fact]
     public void Build_AppEvent_DoesNotSerializeWindowTitle()
     {
         var request = TrackingEventBuilder.Build(
