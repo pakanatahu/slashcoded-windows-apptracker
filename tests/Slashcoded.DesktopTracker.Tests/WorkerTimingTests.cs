@@ -25,8 +25,9 @@ public sealed class WorkerTimingTests
         var upload = Assert.Single(fixture.UploadClient.Payloads);
         var request = Assert.IsType<TrackingUploadRequest>(upload);
         Assert.Equal(15_000, request.Events[0].DurationMs);
-        Assert.Equal(15, request.Events[0].Payload.SegmentDurationSeconds);
-        Assert.Equal("v1", request.Events[0].Payload.TrackerConfigVersion);
+        Assert.Equal("v3", request.ContractVersion);
+        Assert.Equal(15, request.Events[0].SegmentDurationSeconds);
+        Assert.Equal("v1", request.Events[0].TrackerConfigVersion);
     }
 
     [Fact]
@@ -44,7 +45,7 @@ public sealed class WorkerTimingTests
         var upload = Assert.Single(fixture.UploadClient.Payloads);
         var request = Assert.IsType<TrackingUploadRequest>(upload);
         Assert.Equal(5_000, request.Events[0].DurationMs);
-        Assert.Equal("chrome.exe", request.Events[0].Payload.ProcessName);
+        Assert.Equal("chrome.exe", request.Events[0].ProcessName);
     }
 
     [Fact]
@@ -78,7 +79,7 @@ public sealed class WorkerTimingTests
         var upload = Assert.Single(fixture.UploadClient.Payloads);
         var request = Assert.IsType<TrackingUploadRequest>(upload);
         Assert.Equal(5_000, request.Events[0].DurationMs);
-        Assert.Equal(5, request.Events[0].Payload.IdleThresholdSeconds);
+        Assert.Equal(5, request.Events[0].IdleThresholdSeconds);
     }
 
     [Fact]
@@ -108,7 +109,7 @@ public sealed class WorkerTimingTests
         var second = Assert.IsType<TrackingUploadRequest>(fixture.UploadClient.Payloads[1]).Events[0];
         Assert.Equal(5_000, first.DurationMs);
         Assert.Equal(15_000, second.DurationMs);
-        Assert.True(second.Payload.SegmentStartTs > first.Payload.SegmentEndTs);
+        Assert.True(DateTimeOffset.Parse(second.OccurredAt) > DateTimeOffset.Parse(first.OccurredAt));
     }
 
     [Fact]

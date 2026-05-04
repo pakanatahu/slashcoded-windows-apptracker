@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace Slashcoded.DesktopTracker;
 
@@ -19,9 +17,7 @@ public static class TrackingEventBuilder
             segmentEnd = maxSegmentEnd;
         }
 
-        var segmentStartTs = segmentStart.ToUnixTimeMilliseconds();
-        var segmentEndTs = segmentEnd.ToUnixTimeMilliseconds();
-        var durationMs = segmentEndTs - segmentStartTs;
+        var durationMs = segmentEnd.ToUnixTimeMilliseconds() - segmentStart.ToUnixTimeMilliseconds();
         if (durationMs <= 0)
         {
             return null;
@@ -29,30 +25,21 @@ public static class TrackingEventBuilder
 
         var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         var timezone = TimezoneMetadataProvider.Capture(segmentEnd);
-        var payload = new AppTrackingPayload(
-            Type: "app",
-            EventId: BuildEventId(normalizedProcessName, segmentStartTs, segmentEndTs),
-            Process: normalizedProcessName,
-            ProcessName: normalizedProcessName,
-            ProcessPath: sample.ProcessPath,
-            DisplayName: ResolveDisplayName(sample),
-            SegmentStartTs: segmentStartTs,
-            SegmentEndTs: segmentEndTs,
-            TrackerConfigVersion: config.ConfigVersion,
-            SegmentDurationSeconds: config.SegmentDurationSeconds,
-            IdleThresholdSeconds: config.IdleThresholdSeconds);
 
         return new TrackingUploadRequest(
-            ContractVersion: "v2",
+            ContractVersion: "v3",
             Events:
             [
                 new TrackingUploadEvent(
-                    Source: "desktop",
+                    Kind: "app",
+                    Producer: "desktop",
                     OccurredAt: segmentEnd.ToUniversalTime().ToString("O"),
                     DurationMs: durationMs,
-                    Project: null,
-                    Category: "app",
-                    Payload: payload,
+                    ProcessName: normalizedProcessName,
+                    DisplayName: ResolveDisplayName(sample),
+                    TrackerConfigVersion: config.ConfigVersion,
+                    SegmentDurationSeconds: config.SegmentDurationSeconds,
+                    IdleThresholdSeconds: config.IdleThresholdSeconds,
                     Timezone: timezone.Timezone,
                     TimezoneOffsetMinutes: timezone.TimezoneOffsetMinutes,
                     TimezoneSource: timezone.TimezoneSource,
@@ -108,21 +95,5 @@ public static class TrackingEventBuilder
 
         var fileName = Path.GetFileNameWithoutExtension(sample.ProcessPath);
         return string.IsNullOrWhiteSpace(fileName) ? sample.ProcessName : fileName;
-    }
-
-    private static string BuildEventId(string processName, long segmentStartTs, long segmentEndTs)
-    {
-        var key = string.Join("|",
-            Environment.MachineName,
-            processName,
-            segmentStartTs.ToString(),
-            segmentEndTs.ToString());
-        return $"desktop-{ComputeSha256Hex(key)}";
-    }
-
-    private static string ComputeSha256Hex(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }

@@ -73,33 +73,25 @@ Every emitted event should include:
 ```
 
 Placement:
-- include these fields in `payload`
+- include these fields on each v3 event
 
 These fields are for diagnostics and parity checks. They are not trust credentials.
 
 ## Required event example
 ```json
 {
-  "contractVersion": "v2",
+  "contractVersion": "v3",
   "events": [
     {
-      "source": "desktop",
+      "kind": "app",
+      "producer": "desktop",
       "occurredAt": "2026-04-14T09:15:30.000Z",
       "durationMs": 15000,
-      "category": "app",
-      "payload": {
-        "type": "app",
-        "event_id": "desktop-1713086130000-chrome",
-        "process": "chrome.exe",
-        "processName": "chrome.exe",
-        "processPath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "displayName": "Google Chrome",
-        "segment_start_ts": 1713086115000,
-        "segment_end_ts": 1713086130000,
-        "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",
-        "segmentDurationSeconds": 15,
-        "idleThresholdSeconds": 300
-      }
+      "processName": "chrome.exe",
+      "displayName": "Google Chrome",
+      "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",
+      "segmentDurationSeconds": 15,
+      "idleThresholdSeconds": 300
     }
   ]
 }
@@ -109,8 +101,7 @@ These fields are for diagnostics and parity checks. They are not trust credentia
 - Replace any local polling/flush interval assumptions that differ from host timing
 - Use `segmentDurationSeconds` as the max slice size for foreground app events
 - Use `idleThresholdSeconds` as the AFK cutoff
-- Reuse the same `event_id` on retry for the same closed segment
-- Keep producer semantics neutral: `category = "app"`
+- Keep producer semantics neutral: `kind = "app"`
 - Preserve process/window facts exactly as before
 
 ## Acceptance criteria

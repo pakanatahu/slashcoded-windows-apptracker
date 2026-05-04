@@ -1,6 +1,6 @@
 # Slashcoded.DesktopTracker
 
-Windows desktop activity tracker used by Slashcoded Desktop. It measures foreground app focus on Windows and uploads neutral host-surface `app` events to the local Slashcoded API `v2` ingestion contract.
+Windows desktop activity tracker used by Slashcoded Desktop. It measures foreground app focus on Windows and uploads neutral host-surface `app` events to the local Slashcoded API `v3` ingestion contract.
 
 ## What it does
 
@@ -9,7 +9,7 @@ Windows desktop activity tracker used by Slashcoded Desktop. It measures foregro
 - Fetches shared host timing from the local API before foreground tracking starts.
 - Segments the current foreground app using the host `segmentDurationSeconds` value.
 - Stops emitting focused app slices when idle time reaches the host `idleThresholdSeconds` value.
-- Emits neutral `contractVersion = "v2"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
+- Emits neutral `contractVersion = "v3"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
 - Polls the local API allowlist on a regular cadence only to suppress duplicate discovery reports for known apps.
 - Registers a trusted source once and signs each upload with trust headers.
 
@@ -66,7 +66,7 @@ The local API must expose `GET {ApiBaseUrl}/api/host/tracking-config` and return
 Foreground app event rules:
 
 - A segment never exceeds `segmentDurationSeconds`.
-- `durationMs` equals `payload.segment_end_ts - payload.segment_start_ts`.
+- `durationMs` is the emitted segment duration.
 - `occurredAt` is the segment end time in UTC.
 - Process identity changes close the current segment and start a new one.
 - Idle cutoff closes the current segment and suppresses further focused slices until activity returns.
@@ -132,31 +132,26 @@ Unknown apps can still be reported to:
 
 ### Data contract
 
-The request body is an object with `contractVersion = "v2"` and an `events` array. Each event uses the following shape:
+The request body is an object with `contractVersion = "v3"` and an `events` array. Each event uses the following shape:
 
 ```json
 {
-  "contractVersion": "v2",
+  "contractVersion": "v3",
   "events": [
     {
-      "source": "desktop",
+      "kind": "app",
+      "producer": "desktop",
       "occurredAt": "2026-03-14T08:31:30.0000000Z",
       "durationMs": 15000,
-      "project": null,
-      "category": "app",
-      "payload": {
-        "type": "app",
-        "event_id": "desktop-9f7d0f4e1710405075000",
-        "process": "explorer.exe",
-        "processName": "explorer.exe",
-        "processPath": "C:\\\\WINDOWS\\\\Explorer.EXE",
-        "displayName": "Windows Explorer",
-        "segment_start_ts": 1710405075000,
-        "segment_end_ts": 1710405090000,
-        "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",
-        "segmentDurationSeconds": 15,
-        "idleThresholdSeconds": 300
-      }
+      "processName": "explorer.exe",
+      "displayName": "Windows Explorer",
+      "timezone": "Europe/Copenhagen",
+      "timezoneOffsetMinutes": 60,
+      "timezoneSource": "producer",
+      "windowsTimezone": "Romance Standard Time",
+      "trackerConfigVersion": "2026-04-14T00:00:00.0000000Z",
+      "segmentDurationSeconds": 15,
+      "idleThresholdSeconds": 300
     }
   ]
 }
@@ -165,12 +160,10 @@ The request body is an object with `contractVersion = "v2"` and an `events` arra
 Notes:
 
 - `occurredAt` is UTC ISO 8601 and must match the segment end time.
-- `durationMs` must equal `payload.segment_end_ts - payload.segment_start_ts`.
-- `category` is always neutral `"app"`.
-- `payload.event_id` is deterministic for a given segment and reused on retry.
-- `payload.process` and `payload.processName` are normalized executable names such as `chrome.exe`.
-- `payload.processPath` and `payload.displayName` are recommended metadata when available.
-- `payload.trackerConfigVersion`, `payload.segmentDurationSeconds`, and `payload.idleThresholdSeconds` are diagnostic metadata showing the timing config used to emit the slice.
+- `kind` is always neutral `"app"` and `producer` is always `"desktop"`.
+- `processName` is the normalized executable name, such as `chrome.exe`.
+- `displayName` is recommended metadata when available.
+- `trackerConfigVersion`, `segmentDurationSeconds`, and `idleThresholdSeconds` are diagnostic metadata showing the timing config used to emit the slice.
 - Upload payloads above `16KB` are rejected client-side.
 
 The tracker is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the tracker to capture Windows app usage and feed your system.

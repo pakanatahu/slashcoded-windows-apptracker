@@ -314,7 +314,6 @@ public sealed class Worker : BackgroundService
     private static string ResolveDisplayName(DesktopWindowSample sample) =>
         TrackingEventBuilder.Build(sample, sample.CapturedAt, sample.CapturedAt.AddSeconds(1), HostTrackingConfig.Default)
             ?.Events[0]
-            .Payload
             .DisplayName ?? sample.ProcessName;
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)

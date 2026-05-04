@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Slashcoded.DesktopTracker;
 
 public sealed record TrackingUploadRequest(
@@ -7,26 +5,16 @@ public sealed record TrackingUploadRequest(
     IReadOnlyList<TrackingUploadEvent> Events);
 
 public sealed record TrackingUploadEvent(
-    string Source,
+    string Kind,
+    string Producer,
     string OccurredAt,
     long DurationMs,
-    string? Project,
-    string Category,
-    AppTrackingPayload Payload,
+    string ProcessName,
+    string DisplayName,
+    string? TrackerConfigVersion,
+    int SegmentDurationSeconds,
+    int IdleThresholdSeconds,
     string? Timezone = null,
     int? TimezoneOffsetMinutes = null,
     string? TimezoneSource = null,
     string? WindowsTimezone = null);
-
-public sealed record AppTrackingPayload(
-    string Type,
-    [property: JsonPropertyName("event_id")] string EventId,
-    string Process,
-    string ProcessName,
-    string? ProcessPath,
-    string DisplayName,
-    [property: JsonPropertyName("segment_start_ts")] long SegmentStartTs,
-    [property: JsonPropertyName("segment_end_ts")] long SegmentEndTs,
-    string? TrackerConfigVersion,
-    int SegmentDurationSeconds,
-    int IdleThresholdSeconds);

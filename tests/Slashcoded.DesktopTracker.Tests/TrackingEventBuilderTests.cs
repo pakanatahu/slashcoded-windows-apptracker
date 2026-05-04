@@ -23,10 +23,13 @@ public sealed class TrackingEventBuilderTests
             config);
 
         Assert.NotNull(request);
-        var payload = request.Events[0].Payload;
-        Assert.Equal("2026-04-14T00:00:00.0000000Z", payload.TrackerConfigVersion);
-        Assert.Equal(15, payload.SegmentDurationSeconds);
-        Assert.Equal(300, payload.IdleThresholdSeconds);
+        var evt = request.Events[0];
+        Assert.Equal("v3", request.ContractVersion);
+        Assert.Equal("app", evt.Kind);
+        Assert.Equal("desktop", evt.Producer);
+        Assert.Equal("2026-04-14T00:00:00.0000000Z", evt.TrackerConfigVersion);
+        Assert.Equal(15, evt.SegmentDurationSeconds);
+        Assert.Equal(300, evt.IdleThresholdSeconds);
     }
 
     [Fact]
@@ -54,8 +57,7 @@ public sealed class TrackingEventBuilderTests
             HostTrackingConfig.Default);
 
         Assert.NotNull(request);
-        var evt = request.Events[0];
-        Assert.Equal(evt.Payload.SegmentEndTs - evt.Payload.SegmentStartTs, evt.DurationMs);
+        Assert.Equal(15_000, request.Events[0].DurationMs);
     }
 
     [Fact]
@@ -114,7 +116,7 @@ public sealed class TrackingEventBuilderTests
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.Equal(first.Events[0].Payload.EventId, second.Events[0].Payload.EventId);
+        Assert.Equal(first.Events[0], second.Events[0]);
     }
 
     [Fact]
