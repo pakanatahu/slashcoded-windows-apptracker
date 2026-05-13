@@ -19,7 +19,7 @@ public sealed class Worker : BackgroundService
     private readonly IActiveWindowMonitor _monitor;
     private readonly TimeSpan _heartbeatInterval;
     private readonly TimeSpan _sleepGapThreshold;
-    private readonly Dictionary<string, bool> _allowlist = new(StringComparer.OrdinalIgnoreCase);
+    private DesktopAppPolicy _policy = DesktopAppPolicy.Empty;
     private readonly HashSet<string> _reportedDiscoveries = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset _allowlistExpires = DateTimeOffset.MinValue;
     private DesktopWindowSample? _activeSample;
@@ -223,6 +223,13 @@ public sealed class Worker : BackgroundService
         }
 
         var normalizedProcessName = TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        await EnsurePolicyAsync(cancellationToken);
+        if (!_policy.IsRecordable(sample.ProcessName, sample.ProcessPath))
+        {
+            _logger.LogDebug("Skipping unapproved desktop app activity for {Process}", sample.ProcessName);
+            return;
+        }
+
         var payload = TrackingEventBuilder.Build(sample, segmentStart, segmentEnd, config);
         if (payload is null)
         {
@@ -245,8 +252,8 @@ public sealed class Worker : BackgroundService
 
     private async Task ReportDiscoveryIfNeededAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
-        await EnsureAllowlistAsync(cancellationToken);
-        if (_allowlist.ContainsKey(TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath)))
+        await EnsurePolicyAsync(cancellationToken);
+        if (_policy.IsKnown(sample.ProcessName, sample.ProcessPath))
         {
             return;
         }
@@ -254,7 +261,7 @@ public sealed class Worker : BackgroundService
         await ReportDiscoveryAsync(sample, cancellationToken);
     }
 
-    private async Task EnsureAllowlistAsync(CancellationToken cancellationToken)
+    private async Task EnsurePolicyAsync(CancellationToken cancellationToken)
     {
         if (DateTimeOffset.UtcNow < _allowlistExpires)
         {
@@ -264,22 +271,16 @@ public sealed class Worker : BackgroundService
         try
         {
             var client = _httpClientFactory.CreateClient();
-            var response = await client.GetAsync($"{_options.ApiBaseUrl}/api/desktop/apps/allowlist", cancellationToken);
+            var response = await client.GetAsync($"{_options.ApiBaseUrl}/api/desktop/apps/policy", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var dto = await response.Content.ReadFromJsonAsync<DesktopAllowlistResponse>(cancellationToken: cancellationToken) ?? new DesktopAllowlistResponse(Array.Empty<DesktopAllowlistEntry>());
-            _allowlist.Clear();
-            foreach (var app in dto.Apps)
-            {
-                if (!string.IsNullOrWhiteSpace(app.ProcessName))
-                {
-                    _allowlist[TrackingEventBuilder.NormalizeProcessName(app.ProcessName, null)] = true;
-                }
-            }
+            var dto = await response.Content.ReadFromJsonAsync<DesktopPolicyResponse>(cancellationToken: cancellationToken)
+                ?? new DesktopPolicyResponse(null, Array.Empty<DesktopAppPolicyEntry>());
+            _policy = DesktopAppPolicy.FromEntries(dto.Apps);
             _allowlistExpires = DateTimeOffset.UtcNow.Add(AllowlistTtl);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to refresh desktop app allowlist");
+            _logger.LogWarning(ex, "Failed to refresh desktop app policy");
             _allowlistExpires = DateTimeOffset.UtcNow.AddSeconds(10);
         }
     }
@@ -337,6 +338,5 @@ public sealed class Worker : BackgroundService
         base.Dispose();
     }
 
-    private sealed record DesktopAllowlistResponse(IReadOnlyList<DesktopAllowlistEntry> Apps);
-    private sealed record DesktopAllowlistEntry(string ProcessName, string? DisplayName, string? Category);
+    private sealed record DesktopPolicyResponse(string? ConfigVersion, IReadOnlyList<DesktopAppPolicyEntry> Apps);
 }

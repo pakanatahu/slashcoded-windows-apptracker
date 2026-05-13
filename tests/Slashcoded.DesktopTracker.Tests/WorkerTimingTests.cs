@@ -143,7 +143,35 @@ public sealed class WorkerTimingTests
         Assert.Equal(1, fixture.ConfigProvider.RefreshCount);
     }
 
-    private static WorkerFixture CreateFixture(HostTrackingConfig config)
+    [Fact]
+    public async Task UnallowedApp_DiscoversButDoesNotUpload()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default, """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","isAllowed":false,"isIgnored":false}]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
+    }
+
+    [Fact]
+    public async Task IgnoredApp_DoesNotUpload()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default, """{"apps":[{"processName":"steam.exe","displayName":"Steam","isAllowed":false,"isIgnored":true}]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "steam");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "steam");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
+    }
+
+    private static WorkerFixture CreateFixture(HostTrackingConfig config, string? policyJson = null)
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-04-14T09:15:00Z"));
         var idleMonitor = new FakeIdleMonitor();
@@ -153,7 +181,7 @@ public sealed class WorkerTimingTests
         {
             Current = config
         };
-        var httpFactory = new StaticHttpClientFactory(new HttpClient(new AllowlistMessageHandler()));
+        var httpFactory = new StaticHttpClientFactory(new HttpClient(new AllowlistMessageHandler(policyJson)));
         var options = Options.Create(new TrackerOptions
         {
             ApiBaseUrl = "http://127.0.0.1:5292",
@@ -194,12 +222,12 @@ public sealed class WorkerTimingTests
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class AllowlistMessageHandler : HttpMessageHandler
+    private sealed class AllowlistMessageHandler(string? policyJson = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var content = request.Method == HttpMethod.Get
-                ? """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","category":"app"},{"processName":"msedge.exe","displayName":"Edge","category":"app"}]}"""
+                ? (policyJson ?? """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","isAllowed":true,"isIgnored":false},{"processName":"msedge.exe","displayName":"Edge","isAllowed":true,"isIgnored":false}]}""")
                 : "{}";
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

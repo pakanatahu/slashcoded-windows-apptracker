@@ -108,23 +108,25 @@ METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256_BASE64(ra
 
 The tracker signs exact outbound body bytes and regenerates timestamp/nonce/signature on retry.
 
-### Allowlist and discovery contract
+### Desktop policy and discovery contract
 
-The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/allowlist` and return JSON like:
+The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/policy` and return JSON like:
 
 ```json
 {
+  "configVersion": "2026-05-13T17:00:00.0000000Z",
   "apps": [
     {
       "processName": "explorer",
       "displayName": "Windows Explorer",
-      "category": "good"
+      "isAllowed": true,
+      "isIgnored": false
     }
   ]
 }
 ```
 
-Known apps in the allowlist are not re-reported to the discovery endpoint. The allowlist no longer controls whether focus events are uploaded.
+The desktop policy controls both discovery de-duplication and upload suppression. The tracker uploads only when a process is explicitly allowed and not ignored.
 
 Unknown apps can still be reported to:
 
