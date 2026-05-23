@@ -1,11 +1,11 @@
-namespace Slashcoded.DesktopTracker.Tests;
+namespace Slashcoded.DesktopObserver.Tests;
 
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Slashcoded.DesktopTracker;
-using Slashcoded.DesktopTracker.Tests.Fakes;
+using Slashcoded.DesktopObserver;
+using Slashcoded.DesktopObserver.Tests.Fakes;
 using Xunit;
 
 public sealed class WorkerTimingTests
@@ -23,7 +23,7 @@ public sealed class WorkerTimingTests
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         var upload = Assert.Single(fixture.UploadClient.Payloads);
-        var request = Assert.IsType<TrackingUploadRequest>(upload);
+        var request = Assert.IsType<ObserverUploadRequest>(upload);
         Assert.Equal(15_000, request.Events[0].DurationMs);
         Assert.Equal("v3", request.ContractVersion);
         Assert.Equal(15, request.Events[0].SegmentDurationSeconds);
@@ -43,7 +43,7 @@ public sealed class WorkerTimingTests
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         var upload = Assert.Single(fixture.UploadClient.Payloads);
-        var request = Assert.IsType<TrackingUploadRequest>(upload);
+        var request = Assert.IsType<ObserverUploadRequest>(upload);
         Assert.Equal(5_000, request.Events[0].DurationMs);
         Assert.Equal("chrome.exe", request.Events[0].ProcessName);
     }
@@ -77,7 +77,7 @@ public sealed class WorkerTimingTests
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         var upload = Assert.Single(fixture.UploadClient.Payloads);
-        var request = Assert.IsType<TrackingUploadRequest>(upload);
+        var request = Assert.IsType<ObserverUploadRequest>(upload);
         Assert.Equal(5_000, request.Events[0].DurationMs);
         Assert.Equal(5, request.Events[0].IdleThresholdSeconds);
     }
@@ -105,8 +105,8 @@ public sealed class WorkerTimingTests
         await fixture.Worker.TickAsync(CancellationToken.None);
 
         Assert.Equal(2, fixture.UploadClient.Payloads.Count);
-        var first = Assert.IsType<TrackingUploadRequest>(fixture.UploadClient.Payloads[0]).Events[0];
-        var second = Assert.IsType<TrackingUploadRequest>(fixture.UploadClient.Payloads[1]).Events[0];
+        var first = Assert.IsType<ObserverUploadRequest>(fixture.UploadClient.Payloads[0]).Events[0];
+        var second = Assert.IsType<ObserverUploadRequest>(fixture.UploadClient.Payloads[1]).Events[0];
         Assert.Equal(5_000, first.DurationMs);
         Assert.Equal(15_000, second.DurationMs);
         Assert.True(DateTimeOffset.Parse(second.OccurredAt) > DateTimeOffset.Parse(first.OccurredAt));
@@ -182,7 +182,7 @@ public sealed class WorkerTimingTests
             Current = config
         };
         var httpFactory = new StaticHttpClientFactory(new HttpClient(new AllowlistMessageHandler(policyJson)));
-        var options = Options.Create(new TrackerOptions
+        var options = Options.Create(new ObserverOptions
         {
             ApiBaseUrl = "http://127.0.0.1:5292",
             HeartbeatIntervalSeconds = 5,

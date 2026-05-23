@@ -1,4 +1,4 @@
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public interface ITrustedUploadClient
 {

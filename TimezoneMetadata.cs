@@ -1,4 +1,4 @@
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed record TimezoneMetadata(
     string? Timezone,

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Vanara.PInvoke;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class ActiveWindowMonitor : IActiveWindowMonitor
 {

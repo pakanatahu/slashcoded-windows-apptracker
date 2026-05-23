@@ -29,7 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Slashcoded.DesktopTracker.csproj" />
+    <ProjectReference Include="..\..\Slashcoded.DesktopObserver.csproj" />
   </ItemGroup>
 
 </Project>

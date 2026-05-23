@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class TrustedSourceCredentialStore
 {
@@ -10,13 +10,20 @@ public sealed class TrustedSourceCredentialStore
     private readonly ILogger<TrustedSourceCredentialStore> _logger;
 
     public TrustedSourceCredentialStore(ILogger<TrustedSourceCredentialStore> logger)
+        : this(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Slashcoded",
+                "DesktopObserver",
+                "trusted-source.json"),
+            logger)
+    {
+    }
+
+    internal TrustedSourceCredentialStore(string credentialFilePath, ILogger<TrustedSourceCredentialStore> logger)
     {
         _logger = logger;
-        var basePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Slashcoded",
-            "DesktopTracker");
-        _credentialFilePath = Path.Combine(basePath, "trusted-source.json");
+        _credentialFilePath = credentialFilePath;
     }
 
     public async Task<TrustedSourceCredentials?> LoadAsync(CancellationToken cancellationToken)

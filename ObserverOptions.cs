@@ -1,6 +1,6 @@
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
-public sealed class TrackerOptions
+public sealed class ObserverOptions
 {
     public string ApiBaseUrl { get; set; } = "http://127.0.0.1:5292";
     public int HeartbeatIntervalSeconds { get; set; } = 5;

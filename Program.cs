@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Slashcoded.DesktopTracker;
+using Slashcoded.DesktopObserver;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders();
@@ -10,7 +10,11 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
 });
 builder.Services.AddHttpClient();
-builder.Services.Configure<TrackerOptions>(builder.Configuration.GetSection("Tracker"));
+var observerSection = builder.Configuration.GetSection("Observer");
+builder.Services.Configure<ObserverOptions>(
+    observerSection.Exists()
+        ? observerSection
+        : builder.Configuration.GetSection("Tracker"));
 builder.Services.AddSingleton<ISystemClock, SystemClock>();
 builder.Services.AddSingleton<IIdleMonitor, WindowsIdleMonitor>();
 builder.Services.AddSingleton<IActiveWindowMonitor, ActiveWindowMonitor>();

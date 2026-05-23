@@ -1,4 +1,4 @@
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class DesktopAppPolicy
 {
@@ -21,7 +21,7 @@ public sealed class DesktopAppPolicy
                 continue;
             }
 
-            map[TrackingEventBuilder.NormalizeProcessName(entry.ProcessName, null)] = entry;
+            map[ObserverEventBuilder.NormalizeProcessName(entry.ProcessName, null)] = entry;
         }
 
         return new DesktopAppPolicy(map);
@@ -29,13 +29,13 @@ public sealed class DesktopAppPolicy
 
     public bool IsRecordable(string processName, string? processPath)
     {
-        var normalized = TrackingEventBuilder.NormalizeProcessName(processName, processPath);
+        var normalized = ObserverEventBuilder.NormalizeProcessName(processName, processPath);
         return _entries.TryGetValue(normalized, out var entry) && entry.IsAllowed && !entry.IsIgnored;
     }
 
     public bool IsKnown(string processName, string? processPath)
     {
-        var normalized = TrackingEventBuilder.NormalizeProcessName(processName, processPath);
+        var normalized = ObserverEventBuilder.NormalizeProcessName(processName, processPath);
         return _entries.ContainsKey(normalized);
     }
 }

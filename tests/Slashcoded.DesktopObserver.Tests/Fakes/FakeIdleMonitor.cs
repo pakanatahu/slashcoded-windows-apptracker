@@ -1,6 +1,6 @@
-namespace Slashcoded.DesktopTracker.Tests.Fakes;
+namespace Slashcoded.DesktopObserver.Tests.Fakes;
 
-using Slashcoded.DesktopTracker;
+using Slashcoded.DesktopObserver;
 
 public sealed class FakeIdleMonitor : IIdleMonitor
 {

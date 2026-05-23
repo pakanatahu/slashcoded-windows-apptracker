@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in contributing to Slashcoded Desktop Tracker.
+Thanks for your interest in contributing to Slashcoded Desktop Observer.
 
 ## Reporting issues
 
@@ -10,11 +10,11 @@ Please open an issue with:
 - Steps to reproduce.
 - Expected vs. actual behavior.
 - Logs or screenshots when relevant.
-- Your OS version and the tracker version/commit.
+- Your OS version and the observer version/commit.
 
 If the issue involves timing, idle behavior, or segment size, also include:
 
-- The current host tracking config version from `trackerConfigVersion` payload metadata.
+- The current host timing config version from `trackerConfigVersion` payload metadata.
 - Whether the issue happened before the first successful config fetch or after a refresh.
 - The observed `segmentDurationSeconds` and `idleThresholdSeconds` values in uploaded payloads.
 

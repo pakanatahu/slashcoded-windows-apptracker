@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.IO;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
-public static class TrackingEventBuilder
+public static class ObserverEventBuilder
 {
-    public static TrackingUploadRequest? Build(
+    public static ObserverUploadRequest? Build(
         DesktopWindowSample sample,
         DateTimeOffset segmentStart,
         DateTimeOffset segmentEnd,
@@ -26,11 +26,11 @@ public static class TrackingEventBuilder
         var normalizedProcessName = NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         var timezone = TimezoneMetadataProvider.Capture(segmentEnd);
 
-        return new TrackingUploadRequest(
+        return new ObserverUploadRequest(
             ContractVersion: "v3",
             Events:
             [
-                new TrackingUploadEvent(
+                new ObserverUploadEvent(
                     Kind: "app",
                     Producer: "desktop",
                     OccurredAt: segmentEnd.ToUniversalTime().ToString("O"),

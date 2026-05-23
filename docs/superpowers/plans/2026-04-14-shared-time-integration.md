@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the Windows tracker fetch shared timing config from the host API, enforce the shared segment and idle contract at runtime, include config metadata in uploads, and ship the change with tests, version bumps, and release documentation.
+**Goal:** Make the Windows observer fetch shared timing config from the host API, enforce the shared segment and idle contract at runtime, include config metadata in uploads, and ship the change with tests, version bumps, and release documentation.
 
-**Architecture:** Replace tracker-owned timing decisions with a small host-config layer that discovers the local API, loads `/api/host/tracking-config`, stores the last known good config in memory, and refreshes it every 5 minutes. Refactor `Worker` so segment emission depends on the active runtime config instead of `FlushInterval*`, and add deterministic unit tests around config fallback, idle transitions, segment boundaries, and payload metadata before updating public docs and release artifacts.
+**Architecture:** Replace observer-owned timing decisions with a small host-config layer that discovers the local API, loads `/api/host/tracking-config`, stores the last known good config in memory, and refreshes it every 5 minutes. Refactor `Worker` so segment emission depends on the active runtime config instead of `FlushInterval*`, and add deterministic unit tests around config fallback, idle transitions, segment boundaries, and payload metadata before updating public docs and release artifacts.
 
 **Tech Stack:** .NET 8 Worker Service, `HttpClient`, `Microsoft.Extensions.Options`, xUnit test project, solution-level `dotnet test` verification, Markdown release docs.
 
@@ -17,18 +17,18 @@
   Registers any new host-config services and testable abstractions needed by `Worker`.
 - `Worker.cs`
   Moves timing logic from local option-based intervals to shared host config, idle cutoff behavior, refresh cadence, and payload metadata.
-- `TrackerOptions.cs`
+- `ObserverOptions.cs`
   Removes or deprecates local timing knobs that must no longer diverge after host config loads.
 - `appsettings.json`
-  Keeps only supported tracker configuration and any refresh/discovery settings that remain configurable.
-- `Slashcoded.DesktopTracker.csproj`
+  Keeps only supported observer configuration and any refresh/discovery settings that remain configurable.
+- `Slashcoded.DesktopObserver.csproj`
   Bumps app version metadata and adds any test-friendly assembly settings if needed.
-- `slashcoded-windows-apptracker.sln`
+- `slashcoded-windows-observer.sln`
   Adds the new test project.
 - `README.md`
   Updates configuration, runtime behavior, payload contract, and release notes references.
 - `CONTRIBUTING.md`
-  Updates bug-report guidance to mention shared timing config and tracker version expectations.
+  Updates bug-report guidance to mention shared timing config and observer version expectations.
 
 **New source files to create**
 - `HostTrackingConfig.cs`
@@ -49,19 +49,19 @@
   Interface for reading last user-input time / AFK state without hard-coding OS calls inside `Worker`.
 - `WindowsIdleMonitor.cs`
   Windows implementation used in production.
-- `TrackingEventBuilder.cs`
+- `ObserverEventBuilder.cs`
   Builds upload payloads with deterministic `event_id` reuse and shared timing metadata.
 
 **New test files to create**
-- `tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj`
-- `tests/Slashcoded.DesktopTracker.Tests/HostTrackingConfigProviderTests.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/TrackingEventBuilderTests.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/WorkerTimingTests.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeClock.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeIdleMonitor.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeHostTrackingConfigProvider.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeActiveWindowMonitor.cs`
-- `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeTrustedUploadClient.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj`
+- `tests/Slashcoded.DesktopObserver.Tests/HostTrackingConfigProviderTests.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/ObserverEventBuilderTests.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/WorkerTimingTests.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeClock.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeIdleMonitor.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeHostTrackingConfigProvider.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeActiveWindowMonitor.cs`
+- `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeTrustedUploadClient.cs`
 
 **New release-doc files to create**
 - `CHANGELOG.md`
@@ -72,36 +72,36 @@
 ### Task 1: Create Test Harness and Runtime Abstractions
 
 **Files:**
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeClock.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeIdleMonitor.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeHostTrackingConfigProvider.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeActiveWindowMonitor.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/Fakes/FakeTrustedUploadClient.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeClock.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeIdleMonitor.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeHostTrackingConfigProvider.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeActiveWindowMonitor.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/Fakes/FakeTrustedUploadClient.cs`
 - Create: `ISystemClock.cs`
 - Create: `SystemClock.cs`
 - Create: `IIdleMonitor.cs`
 - Create: `WindowsIdleMonitor.cs`
 - Modify: `Program.cs`
-- Modify: `slashcoded-windows-apptracker.sln`
+- Modify: `slashcoded-windows-observer.sln`
 
 - [x] **Step 1: Create the xUnit test project**
 
-Run: `dotnet new xunit -n Slashcoded.DesktopTracker.Tests -o tests/Slashcoded.DesktopTracker.Tests`
-Expected: project scaffolded under `tests/Slashcoded.DesktopTracker.Tests`
+Run: `dotnet new xunit -n Slashcoded.DesktopObserver.Tests -o tests/Slashcoded.DesktopObserver.Tests`
+Expected: project scaffolded under `tests/Slashcoded.DesktopObserver.Tests`
 
 - [x] **Step 2: Add the test project to the solution**
 
-Run: `dotnet sln slashcoded-windows-apptracker.sln add tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj`
+Run: `dotnet sln slashcoded-windows-observer.sln add tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj`
 Expected: solution updated with one test project
 
-- [x] **Step 3: Add a project reference to the tracker app**
+- [x] **Step 3: Add a project reference to the observer app**
 
-Modify `tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj` so it references the main project:
+Modify `tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj` so it references the main project:
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\..\Slashcoded.DesktopTracker.csproj" />
+  <ProjectReference Include="..\..\Slashcoded.DesktopObserver.csproj" />
 </ItemGroup>
 ```
 
@@ -136,7 +136,7 @@ Execution note: commit deferred until the implementation is complete to avoid sw
 
 Run:
 ```bash
-git add Program.cs slashcoded-windows-apptracker.sln ISystemClock.cs SystemClock.cs IIdleMonitor.cs WindowsIdleMonitor.cs tests/Slashcoded.DesktopTracker.Tests
+git add Program.cs slashcoded-windows-observer.sln ISystemClock.cs SystemClock.cs IIdleMonitor.cs WindowsIdleMonitor.cs tests/Slashcoded.DesktopObserver.Tests
 git commit -m "test: add timing integration test harness"
 ```
 
@@ -148,9 +148,9 @@ git commit -m "test: add timing integration test harness"
 - Create: `HostTrackingConfigResponse.cs`
 - Create: `IHostTrackingConfigProvider.cs`
 - Create: `HostTrackingConfigProvider.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/HostTrackingConfigProviderTests.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/HostTrackingConfigProviderTests.cs`
 - Modify: `Program.cs`
-- Modify: `TrackerOptions.cs`
+- Modify: `ObserverOptions.cs`
 - Modify: `appsettings.json`
 
 - [x] **Step 1: Write failing tests for startup fallback, successful load, and failed refresh retention**
@@ -185,7 +185,7 @@ public async Task RefreshAsync_KeepsLastKnownGoodConfig_WhenRefreshFails()
 
 - [x] **Step 2: Run the provider tests and verify they fail**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter HostTrackingConfigProviderTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter HostTrackingConfigProviderTests`
 Expected: FAIL because provider types do not exist yet
 
 - [x] **Step 3: Implement the config contract and provider**
@@ -211,14 +211,14 @@ Provider requirements:
 - keep last known good config on refresh failure
 - expose a `RefreshInterval = TimeSpan.FromMinutes(5)`
 
-- [x] **Step 4: Remove runtime ownership of local timing knobs from `TrackerOptions`**
+- [x] **Step 4: Remove runtime ownership of local timing knobs from `ObserverOptions`**
 
 Execution note: local flush properties were temporarily retained while the old worker compiled, then removed after the Task 4 worker refactor.
 
-Keep only settings still owned by the tracker, for example:
+Keep only settings still owned by the observer, for example:
 
 ```csharp
-public sealed class TrackerOptions
+public sealed class ObserverOptions
 {
     public string ApiBaseUrl { get; set; } = "http://127.0.0.1:5292";
     public int HeartbeatIntervalSeconds { get; set; } = 5;
@@ -238,7 +238,7 @@ builder.Services.AddSingleton<IHostTrackingConfigProvider, HostTrackingConfigPro
 
 - [x] **Step 6: Run tests and make them pass**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter HostTrackingConfigProviderTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter HostTrackingConfigProviderTests`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -247,15 +247,15 @@ Execution note: commit deferred until the implementation is complete.
 
 Run:
 ```bash
-git add Program.cs TrackerOptions.cs appsettings.json HostTrackingConfig.cs HostHandshakeResponse.cs HostTrackingConfigResponse.cs IHostTrackingConfigProvider.cs HostTrackingConfigProvider.cs tests/Slashcoded.DesktopTracker.Tests/HostTrackingConfigProviderTests.cs
+git add Program.cs ObserverOptions.cs appsettings.json HostTrackingConfig.cs HostHandshakeResponse.cs HostTrackingConfigResponse.cs IHostTrackingConfigProvider.cs HostTrackingConfigProvider.cs tests/Slashcoded.DesktopObserver.Tests/HostTrackingConfigProviderTests.cs
 git commit -m "feat: add shared host tracking config provider"
 ```
 
 ### Task 3: Refactor Event Building to Enforce Shared Timing Metadata
 
 **Files:**
-- Create: `TrackingEventBuilder.cs`
-- Create: `tests/Slashcoded.DesktopTracker.Tests/TrackingEventBuilderTests.cs`
+- Create: `ObserverEventBuilder.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/ObserverEventBuilderTests.cs`
 - Modify: `Worker.cs`
 
 - [x] **Step 1: Write failing payload-shape tests**
@@ -274,7 +274,7 @@ Example:
 public void Build_AppEvent_IncludesSharedTimingMetadata()
 {
     var config = new HostTrackingConfig(15, 300, "2026-04-14T00:00:00.0000000Z", DateTimeOffset.Parse("2026-04-14T00:00:00Z"));
-    var evt = TrackingEventBuilder.Build(sample, segmentStart, segmentEnd, config);
+    var evt = ObserverEventBuilder.Build(sample, segmentStart, segmentEnd, config);
 
     evt.events[0].payload.segmentDurationSeconds.Should().Be(15);
     evt.events[0].payload.idleThresholdSeconds.Should().Be(300);
@@ -284,10 +284,10 @@ public void Build_AppEvent_IncludesSharedTimingMetadata()
 
 - [x] **Step 2: Run the event-builder tests and verify they fail**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter TrackingEventBuilderTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter ObserverEventBuilderTests`
 Expected: FAIL because builder does not exist yet
 
-- [x] **Step 3: Extract payload assembly from `Worker.PublishEventAsync` into `TrackingEventBuilder`**
+- [x] **Step 3: Extract payload assembly from `Worker.PublishEventAsync` into `ObserverEventBuilder`**
 
 Implement a builder method shaped like:
 
@@ -307,7 +307,7 @@ Builder rules:
 
 - [x] **Step 4: Run builder tests and make them pass**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter TrackingEventBuilderTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter ObserverEventBuilderTests`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -316,14 +316,14 @@ Execution note: commit deferred until the implementation is complete.
 
 Run:
 ```bash
-git add Worker.cs TrackingEventBuilder.cs tests/Slashcoded.DesktopTracker.Tests/TrackingEventBuilderTests.cs
+git add Worker.cs ObserverEventBuilder.cs tests/Slashcoded.DesktopObserver.Tests/ObserverEventBuilderTests.cs
 git commit -m "refactor: extract shared-timing event builder"
 ```
 
 ### Task 4: Refactor Worker Runtime Flow to Use Shared Config, Idle Cutoff, and 5-Minute Refresh
 
 **Files:**
-- Create: `tests/Slashcoded.DesktopTracker.Tests/WorkerTimingTests.cs`
+- Create: `tests/Slashcoded.DesktopObserver.Tests/WorkerTimingTests.cs`
 - Modify: `Worker.cs`
 - Modify: `Program.cs`
 
@@ -352,7 +352,7 @@ public async Task IdleReturn_StartsNewSegment_InsteadOfExtendingPreIdleSegment()
 
 - [x] **Step 2: Run the worker timing tests and verify they fail**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter WorkerTimingTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter WorkerTimingTests`
 Expected: FAIL because `Worker` still uses `_flushInterval` and has no idle provider/config refresh behavior
 
 - [x] **Step 3: Refactor `Worker` constructor dependencies**
@@ -402,14 +402,14 @@ Within the main loop:
 
 - [x] **Step 7: Re-run worker timing tests until they pass**
 
-Run: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj --filter WorkerTimingTests`
+Run: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj --filter WorkerTimingTests`
 Expected: PASS
 
 - [x] **Step 8: Run the full test suite**
 
 Execution note: full test project run passes in Release with 16 tests. Solution-level `dotnet test`/restore still exits during solution restore with no MSBuild error in this environment, so project-level build/test are the verified checks.
 
-Run: `dotnet test slashcoded-windows-apptracker.sln`
+Run: `dotnet test slashcoded-windows-observer.sln`
 Expected: PASS
 
 - [ ] **Step 9: Commit**
@@ -418,14 +418,14 @@ Execution note: commit deferred until the implementation is complete.
 
 Run:
 ```bash
-git add Program.cs Worker.cs tests/Slashcoded.DesktopTracker.Tests/WorkerTimingTests.cs
+git add Program.cs Worker.cs tests/Slashcoded.DesktopObserver.Tests/WorkerTimingTests.cs
 git commit -m "feat: enforce shared host timing in worker runtime"
 ```
 
 ### Task 5: Bump Versions and Update Public Documentation
 
 **Files:**
-- Modify: `Slashcoded.DesktopTracker.csproj`
+- Modify: `Slashcoded.DesktopObserver.csproj`
 - Modify: `README.md`
 - Modify: `CONTRIBUTING.md`
 - Create: `CHANGELOG.md`
@@ -433,7 +433,7 @@ git commit -m "feat: enforce shared host timing in worker runtime"
 
 - [x] **Step 1: Decide and apply the release version bump**
 
-Add explicit version properties in `Slashcoded.DesktopTracker.csproj` if missing:
+Add explicit version properties in `Slashcoded.DesktopObserver.csproj` if missing:
 
 ```xml
 <PropertyGroup>
@@ -458,7 +458,7 @@ Document:
 - [x] **Step 3: Update `CONTRIBUTING.md`**
 
 Add bug-report guidance asking for:
-- tracker version
+- observer version
 - current host tracking config version
 - whether issue happened before first successful config fetch or after refresh
 
@@ -481,7 +481,7 @@ Include:
 - summary of behavior changes
 - operator-facing validation steps
 - rollback considerations
-- note that timing settings now come from the host API, not local tracker config
+- note that timing settings now come from the host API, not local observer config
 
 - [ ] **Step 6: Commit**
 
@@ -489,7 +489,7 @@ Execution note: commit deferred until the implementation is complete.
 
 Run:
 ```bash
-git add Slashcoded.DesktopTracker.csproj README.md CONTRIBUTING.md CHANGELOG.md docs/releases/2026-04-14-shared-time-integration.md
+git add Slashcoded.DesktopObserver.csproj README.md CONTRIBUTING.md CHANGELOG.md docs/releases/2026-04-14-shared-time-integration.md
 git commit -m "docs: publish shared timing release notes"
 ```
 
@@ -500,17 +500,17 @@ git commit -m "docs: publish shared timing release notes"
 
 - [x] **Step 1: Run formatting/build verification**
 
-Run: `dotnet build slashcoded-windows-apptracker.sln -c Release`
+Run: `dotnet build slashcoded-windows-observer.sln -c Release`
 Expected: BUILD SUCCESSFUL / `0 Error(s)`
 
-Execution note: `dotnet build Slashcoded.DesktopTracker.csproj -c Release --no-restore` passed with `0 Warning(s)` and `0 Error(s)`. Solution-level build exits during solution restore without a reported MSBuild error in this environment.
+Execution note: `dotnet build Slashcoded.DesktopObserver.csproj -c Release --no-restore` passed with `0 Warning(s)` and `0 Error(s)`. Solution-level build exits during solution restore without a reported MSBuild error in this environment.
 
 - [x] **Step 2: Run the full automated test suite**
 
-Run: `dotnet test slashcoded-windows-apptracker.sln -c Release`
+Run: `dotnet test slashcoded-windows-observer.sln -c Release`
 Expected: all tests PASS
 
-Execution note: `dotnet test tests/Slashcoded.DesktopTracker.Tests/Slashcoded.DesktopTracker.Tests.csproj -c Release --no-restore` passed: 16 passed, 0 failed. Solution-level test exits during solution restore without a reported MSBuild error in this environment.
+Execution note: `dotnet test tests/Slashcoded.DesktopObserver.Tests/Slashcoded.DesktopObserver.Tests.csproj -c Release --no-restore` passed: 16 passed, 0 failed. Solution-level test exits during solution restore without a reported MSBuild error in this environment.
 
 - [x] **Step 3: Manually verify release-facing docs mention the same defaults**
 
@@ -522,7 +522,7 @@ Check these files for consistent `15s` and `300s` defaults and 5-minute refresh 
 
 - [x] **Step 4: Smoke-test config fetch behavior against a live local API**
 
-Run the tracker against a local API exposing:
+Run the observer against a local API exposing:
 - `GET /api/host/handshake`
 - `GET /api/host/tracking-config`
 - `POST /api/upload`
@@ -532,7 +532,7 @@ Expected:
 - refresh attempts every 5 minutes
 - uploaded payload contains `trackerConfigVersion`, `segmentDurationSeconds`, `idleThresholdSeconds`
 
-Execution note: live local API endpoint checks passed for `/api/host/handshake` and `/api/host/tracking-config`. The live config returned `segmentDurationSeconds = 60` and `idleThresholdSeconds = 300`; it did not include `configVersion`, so tracker payload metadata will use `null` for `trackerConfigVersion` until the API includes that field.
+Execution note: live local API endpoint checks passed for `/api/host/handshake` and `/api/host/tracking-config`. The live config returned `segmentDurationSeconds = 60` and `idleThresholdSeconds = 300`; it did not include `configVersion`, so observer payload metadata will use `null` for `trackerConfigVersion` until the API includes that field.
 
 - [x] **Step 5: Capture release handoff notes**
 

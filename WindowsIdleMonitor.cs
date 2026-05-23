@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class WindowsIdleMonitor : IIdleMonitor
 {

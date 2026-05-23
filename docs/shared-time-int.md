@@ -1,19 +1,18 @@
-# Windows Tracker Shared Timing Integration Spec
+# Windows Observer Shared Timing Integration Spec
 
 Status: Ready for implementation  
 Date: 2026-04-14  
-Audience: Agents implementing the `slashcoded-windows-tracker` repo
+Audience: Agents implementing the `slashcoded-windows-observer` repo
 
 ## Purpose
-Make the standalone Windows tracker use the same segment duration and idle cutoff as every other Slashcoded producer.
+Make the standalone Windows observer use the same segment duration and idle cutoff as every other Slashcoded ingestion source.
 
-This is the host-focus producer. Its timing contract must be the baseline that browser extension, IDE extension, and MultiTerminal align to.
+This is the host-focus observer. Its timing contract must be the baseline that browser extension, IDE extension, and MultiTerminal align to.
 
-This spec extends, but does not replace:
-- [windows-tracker-v2-integration-spec.md](/C:/github/Coding-Tracker-Server/docs/windows-tracker-v2-integration-spec.md)
+This spec extends, but does not replace the server-side Windows observer integration spec.
 
 ## Required timing contract
-The tracker must fetch and use:
+The observer must fetch and use:
 - `GET /api/host/handshake`
 - `GET /api/host/tracking-config`
 
@@ -31,7 +30,7 @@ Default values:
 - `segmentDurationSeconds = 15`
 - `idleThresholdSeconds = 300`
 
-The tracker must not keep divergent hardcoded runtime timing once host config is available.
+The observer must not keep divergent hardcoded runtime timing once host config is available.
 
 ## Startup and refresh flow
 Required boot order:
@@ -45,7 +44,7 @@ Failure policy:
 - keep the last known good config if refresh fails
 - only use `15s / 300s` as startup fallback before first successful fetch
 
-## Required tracker timing semantics
+## Required observer timing semantics
 Shared rules:
 - segment max length must equal `segmentDurationSeconds`
 - `durationMs` must never exceed `segmentDurationSeconds * 1000`
@@ -101,16 +100,16 @@ These fields are for diagnostics and parity checks. They are not trust credentia
 - Replace any local polling/flush interval assumptions that differ from host timing
 - Use `segmentDurationSeconds` as the max slice size for foreground app events
 - Use `idleThresholdSeconds` as the AFK cutoff
-- Keep producer semantics neutral: `kind = "app"`
+- Keep ingestion semantics neutral: `kind = "app"`
 - Preserve process/window facts exactly as before
 
 ## Acceptance criteria
 - Foreground app slices default to 15-second max segments
 - AFK cutoff defaults to 5 minutes
-- Payload metadata proves which timing config the tracker used
-- Desktop slices line up closely with richer child-producer slices so overlap replacement is predictable
+- Payload metadata proves which timing config the observer used
+- Desktop slices line up closely with richer child-source slices so overlap replacement is predictable
 
 ## Explicit non-goals
-- The tracker should not classify productivity
-- The tracker should not assign projects directly
-- The tracker should not try to decide aggregation precedence
+- The observer should not classify productivity
+- The observer should not assign projects directly
+- The observer should not try to decide aggregation precedence

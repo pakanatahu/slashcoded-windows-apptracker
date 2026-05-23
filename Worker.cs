@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class Worker : BackgroundService
 {
@@ -15,7 +15,7 @@ public sealed class Worker : BackgroundService
     private readonly IHostTrackingConfigProvider _hostTrackingConfigProvider;
     private readonly ISystemClock _clock;
     private readonly IIdleMonitor _idleMonitor;
-    private readonly TrackerOptions _options;
+    private readonly ObserverOptions _options;
     private readonly IActiveWindowMonitor _monitor;
     private readonly TimeSpan _heartbeatInterval;
     private readonly TimeSpan _sleepGapThreshold;
@@ -37,7 +37,7 @@ public sealed class Worker : BackgroundService
         ISystemClock clock,
         IIdleMonitor idleMonitor,
         IActiveWindowMonitor monitor,
-        IOptions<TrackerOptions> options,
+        IOptions<ObserverOptions> options,
         ILogger<Worker> logger)
     {
         _httpClientFactory = httpClientFactory;
@@ -111,7 +111,7 @@ public sealed class Worker : BackgroundService
             var gap = now - _lastLoop;
             if (gap > _sleepGapThreshold)
             {
-                _logger.LogInformation("Detected long inactivity gap ({Gap}) - resetting tracker state", gap);
+                _logger.LogInformation("Detected long inactivity gap ({Gap}) - resetting observer state", gap);
                 ResetActiveTracking();
                 _lastLoop = now;
                 return;
@@ -222,7 +222,7 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        var normalizedProcessName = TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var normalizedProcessName = ObserverEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         await EnsurePolicyAsync(cancellationToken);
         if (!_policy.IsRecordable(sample.ProcessName, sample.ProcessPath))
         {
@@ -230,7 +230,7 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        var payload = TrackingEventBuilder.Build(sample, segmentStart, segmentEnd, config);
+        var payload = ObserverEventBuilder.Build(sample, segmentStart, segmentEnd, config);
         if (payload is null)
         {
             _logger.LogDebug("Skipping zero-length segment for {Process}", normalizedProcessName);
@@ -287,7 +287,7 @@ public sealed class Worker : BackgroundService
 
     private async Task ReportDiscoveryAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
-        var normalizedProcessName = TrackingEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
+        var normalizedProcessName = ObserverEventBuilder.NormalizeProcessName(sample.ProcessName, sample.ProcessPath);
         if (!_reportedDiscoveries.Add(normalizedProcessName))
         {
             return;
@@ -313,7 +313,7 @@ public sealed class Worker : BackgroundService
     }
 
     private static string ResolveDisplayName(DesktopWindowSample sample) =>
-        TrackingEventBuilder.Build(sample, sample.CapturedAt, sample.CapturedAt.AddSeconds(1), HostTrackingConfig.Default)
+        ObserverEventBuilder.Build(sample, sample.CapturedAt, sample.CapturedAt.AddSeconds(1), HostTrackingConfig.Default)
             ?.Events[0]
             .DisplayName ?? sample.ProcessName;
 
@@ -322,13 +322,13 @@ public sealed class Worker : BackgroundService
         if (e.Mode == PowerModes.Suspend)
         {
             _sleeping = true;
-            _logger.LogInformation("System suspend detected, pausing desktop tracker");
+            _logger.LogInformation("System suspend detected, pausing Desktop Observer");
         }
         else if (e.Mode == PowerModes.Resume)
         {
             _sleeping = false;
             _resetAfterResume = true;
-            _logger.LogInformation("System resume detected, resetting desktop tracker state");
+            _logger.LogInformation("System resume detected, resetting Desktop Observer state");
         }
     }
 

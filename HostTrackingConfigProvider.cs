@@ -1,18 +1,18 @@
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class HostTrackingConfigProvider : IHostTrackingConfigProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly TrackerOptions _options;
+    private readonly ObserverOptions _options;
     private readonly ILogger<HostTrackingConfigProvider> _logger;
     private HostTrackingConfig _current = HostTrackingConfig.Default;
 
     public HostTrackingConfigProvider(
         IHttpClientFactory httpClientFactory,
-        IOptions<TrackerOptions> options,
+        IOptions<ObserverOptions> options,
         ILogger<HostTrackingConfigProvider> logger)
     {
         _httpClientFactory = httpClientFactory;

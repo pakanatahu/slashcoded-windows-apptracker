@@ -9,7 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
 public sealed class TrustedUploadClient : ITrustedUploadClient
 {
@@ -18,7 +18,7 @@ public sealed class TrustedUploadClient : ITrustedUploadClient
     private const int MaxRequestBytes = 16 * 1024;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly TrustedSourceCredentialStore _credentialStore;
-    private readonly TrackerOptions _options;
+    private readonly ObserverOptions _options;
     private readonly ILogger<TrustedUploadClient> _logger;
     private readonly SemaphoreSlim _credentialsGate = new(1, 1);
     private TrustedSourceCredentials? _cachedCredentials;
@@ -26,7 +26,7 @@ public sealed class TrustedUploadClient : ITrustedUploadClient
     public TrustedUploadClient(
         IHttpClientFactory httpClientFactory,
         TrustedSourceCredentialStore credentialStore,
-        IOptions<TrackerOptions> options,
+        IOptions<ObserverOptions> options,
         ILogger<TrustedUploadClient> logger)
     {
         _httpClientFactory = httpClientFactory;
@@ -158,10 +158,10 @@ public sealed class TrustedUploadClient : ITrustedUploadClient
     {
         var request = new
         {
-            clientId = "desktop-tracker",
+            clientId = "desktop-observer",
             clientType = "desktop",
             machineId = ResolveMachineId(),
-            displayName = "Windows App Tracker"
+            displayName = "Windows App Observer"
         };
 
         var client = _httpClientFactory.CreateClient();

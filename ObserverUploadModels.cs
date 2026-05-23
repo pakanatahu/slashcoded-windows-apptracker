@@ -1,10 +1,10 @@
-namespace Slashcoded.DesktopTracker;
+namespace Slashcoded.DesktopObserver;
 
-public sealed record TrackingUploadRequest(
+public sealed record ObserverUploadRequest(
     string ContractVersion,
-    IReadOnlyList<TrackingUploadEvent> Events);
+    IReadOnlyList<ObserverUploadEvent> Events);
 
-public sealed record TrackingUploadEvent(
+public sealed record ObserverUploadEvent(
     string Kind,
     string Producer,
     string OccurredAt,

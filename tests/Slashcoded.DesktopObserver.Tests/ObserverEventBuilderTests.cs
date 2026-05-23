@@ -1,10 +1,10 @@
-namespace Slashcoded.DesktopTracker.Tests;
+namespace Slashcoded.DesktopObserver.Tests;
 
-using Slashcoded.DesktopTracker;
+using Slashcoded.DesktopObserver;
 using System.Text.Json;
 using Xunit;
 
-public sealed class TrackingEventBuilderTests
+public sealed class ObserverEventBuilderTests
 {
     private static readonly DesktopWindowSample Sample = new(
         ProcessName: "chrome",
@@ -16,7 +16,7 @@ public sealed class TrackingEventBuilderTests
     {
         var config = new HostTrackingConfig(15, 300, "2026-04-14T00:00:00.0000000Z", DateTimeOffset.Parse("2026-04-14T00:00:00Z"));
 
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
@@ -37,7 +37,7 @@ public sealed class TrackingEventBuilderTests
     {
         var segmentEnd = DateTimeOffset.Parse("2026-04-14T09:15:30Z");
 
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             segmentEnd,
@@ -50,7 +50,7 @@ public sealed class TrackingEventBuilderTests
     [Fact]
     public void Build_AppEvent_DurationMatchesSegmentTimestamps()
     {
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
@@ -63,7 +63,7 @@ public sealed class TrackingEventBuilderTests
     [Fact]
     public void Build_AppEvent_IncludesProducerTimezoneMetadata()
     {
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
@@ -79,7 +79,7 @@ public sealed class TrackingEventBuilderTests
     [Fact]
     public void Build_AppEvent_DoesNotSerializeWindowTitle()
     {
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             DateTimeOffset.Parse("2026-04-14T09:15:30Z"),
@@ -95,7 +95,7 @@ public sealed class TrackingEventBuilderTests
     {
         var config = new HostTrackingConfig(10, 300, "v1", DateTimeOffset.Parse("2026-04-14T00:00:00Z"));
 
-        var request = TrackingEventBuilder.Build(
+        var request = ObserverEventBuilder.Build(
             Sample,
             DateTimeOffset.Parse("2026-04-14T09:15:15Z"),
             DateTimeOffset.Parse("2026-04-14T09:15:45Z"),
@@ -111,8 +111,8 @@ public sealed class TrackingEventBuilderTests
         var start = DateTimeOffset.Parse("2026-04-14T09:15:15Z");
         var end = DateTimeOffset.Parse("2026-04-14T09:15:30Z");
 
-        var first = TrackingEventBuilder.Build(Sample, start, end, HostTrackingConfig.Default);
-        var second = TrackingEventBuilder.Build(Sample, start, end, HostTrackingConfig.Default);
+        var first = ObserverEventBuilder.Build(Sample, start, end, HostTrackingConfig.Default);
+        var second = ObserverEventBuilder.Build(Sample, start, end, HostTrackingConfig.Default);
 
         Assert.NotNull(first);
         Assert.NotNull(second);
@@ -124,7 +124,7 @@ public sealed class TrackingEventBuilderTests
     {
         var timestamp = DateTimeOffset.Parse("2026-04-14T09:15:15Z");
 
-        var request = TrackingEventBuilder.Build(Sample, timestamp, timestamp, HostTrackingConfig.Default);
+        var request = ObserverEventBuilder.Build(Sample, timestamp, timestamp, HostTrackingConfig.Default);
 
         Assert.Null(request);
     }

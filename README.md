@@ -1,12 +1,12 @@
-# Slashcoded.DesktopTracker
+# Slashcoded.DesktopObserver
 
-Windows desktop activity tracker used by Slashcoded Desktop. It measures foreground app focus on Windows and uploads neutral host-surface `app` events to the local Slashcoded API `v3` ingestion contract.
+Windows desktop activity observer used by Slashcoded Desktop. It measures foreground app focus on Windows and uploads neutral host-surface `app` events to the local Slashcoded API `v3` ingestion contract.
 
 ## What it does
 
 - Polls the active window/process at a regular interval.
 - Resolves the app/process into a stable name.
-- Fetches shared host timing from the local API before foreground tracking starts.
+- Fetches shared host timing from the local API before foreground observing starts.
 - Segments the current foreground app using the host `segmentDurationSeconds` value.
 - Stops emitting focused app slices when idle time reaches the host `idleThresholdSeconds` value.
 - Emits neutral `contractVersion = "v3"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
@@ -15,13 +15,15 @@ Windows desktop activity tracker used by Slashcoded Desktop. It measures foregro
 
 ## Configuration
 
-Set these under `Tracker` in `appsettings.json`:
+Set these under `Observer` in `appsettings.json`:
 
 - `ApiBaseUrl`: Base URL for the local API.
 - `HeartbeatIntervalSeconds`: Polling interval for foreground window checks.
-- `SleepGapThresholdMinutes`: Gap duration that triggers a reset of tracking state.
+- `SleepGapThresholdMinutes`: Gap duration that triggers a reset of observer state.
 
-Segment duration and idle cutoff are not local tracker settings. The tracker discovers them from:
+The app still falls back to the legacy `Tracker` section if `Observer` is missing.
+
+Segment duration and idle cutoff are not local observer settings. The observer discovers them from:
 
 - `GET {ApiBaseUrl}/api/host/handshake`
 - `GET {ApiBaseUrl}/api/host/tracking-config`
@@ -31,24 +33,24 @@ Startup order:
 1. Discover the local API with `/api/host/handshake`.
 2. Fetch `/api/host/tracking-config`.
 3. Cache the config in memory.
-4. Start foreground app tracking with that config.
+4. Start foreground app observing with that config.
 5. Refresh the config every 5 minutes.
 
-If startup or refresh fails, the tracker keeps the last known good config. Before the first successful fetch, it uses the shared defaults: `segmentDurationSeconds = 15` and `idleThresholdSeconds = 300`.
+If startup or refresh fails, the observer keeps the last known good config. Before the first successful fetch, it uses the shared defaults: `segmentDurationSeconds = 15` and `idleThresholdSeconds = 300`.
 
 ## How Slashcoded uses it
 
-Slashcoded Desktop runs this tracker as a background process. The local API receives events and writes them into the local database. The analytics pipeline then includes desktop activity in heatmaps, summaries, and reports.
+Slashcoded Desktop runs this observer as a background process. The local API receives events and writes them into the local database. The analytics pipeline then includes desktop activity in heatmaps, summaries, and reports.
 
 ## How to integrate it in your own app
 
-1. Run the tracker as a background process or service on Windows.
+1. Run the observer as a background process or service on Windows.
 2. Provide a local HTTP endpoint that accepts activity events.
 3. Map incoming events into your own storage or analytics pipeline.
 
 ## Integration guide
 
-The tracker posts JSON to the local API at `POST {ApiBaseUrl}/api/upload`.
+The observer posts JSON to the local API at `POST {ApiBaseUrl}/api/upload`.
 
 ### Shared timing contract
 
@@ -74,7 +76,7 @@ Foreground app event rules:
 
 ### Trusted source enrollment
 
-Before signed uploads, the tracker performs one-time enrollment with:
+Before signed uploads, the observer performs one-time enrollment with:
 
 `POST {ApiBaseUrl}/api/security/sources/register`
 
@@ -82,14 +84,14 @@ Request body:
 
 ```json
 {
-  "clientId": "desktop-tracker",
+  "clientId": "desktop-observer",
   "clientType": "desktop",
   "machineId": "<stable-machine-id>",
-  "displayName": "Windows App Tracker"
+  "displayName": "Windows App Observer"
 }
 ```
 
-The tracker persists the returned `sourceId` and `secret` in user-local app data using Windows DPAPI.
+The observer persists the returned `sourceId` and `secret` in user-local app data using Windows DPAPI.
 
 ### Trusted upload headers
 
@@ -106,11 +108,11 @@ Signature base string:
 METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256_BASE64(rawBodyBytes)
 ```
 
-The tracker signs exact outbound body bytes and regenerates timestamp/nonce/signature on retry.
+The observer signs exact outbound body bytes and regenerates timestamp/nonce/signature on retry.
 
 ### Desktop policy and discovery contract
 
-The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/policy` and return JSON like:
+The observer expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/policy` and return JSON like:
 
 ```json
 {
@@ -126,7 +128,7 @@ The tracker expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/p
 }
 ```
 
-The desktop policy controls both discovery de-duplication and upload suppression. The tracker uploads only when a process is explicitly allowed and not ignored.
+The desktop policy controls both discovery de-duplication and upload suppression. The observer uploads only when a process is explicitly allowed and not ignored.
 
 Unknown apps can still be reported to:
 
@@ -165,10 +167,11 @@ Notes:
 - `kind` is always neutral `"app"` and `producer` is always `"desktop"`.
 - `processName` is the normalized executable name, such as `chrome.exe`.
 - `displayName` is recommended metadata when available.
+- `producer`, `timezoneSource`, and `trackerConfigVersion` are preserved ingestion-contract field names for compatibility.
 - `trackerConfigVersion`, `segmentDurationSeconds`, and `idleThresholdSeconds` are diagnostic metadata showing the timing config used to emit the slice.
 - Upload payloads above `16KB` are rejected client-side.
 
-The tracker is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the tracker to capture Windows app usage and feed your system.
+The observer is designed to be source-agnostic. If your app exposes an HTTP API that accepts JSON activity events, you can reuse the observer to capture Windows app usage and feed your system.
 
 ## Notes
 

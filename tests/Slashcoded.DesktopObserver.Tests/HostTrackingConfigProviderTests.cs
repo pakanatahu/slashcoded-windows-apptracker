@@ -1,10 +1,10 @@
-namespace Slashcoded.DesktopTracker.Tests;
+namespace Slashcoded.DesktopObserver.Tests;
 
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Slashcoded.DesktopTracker;
+using Slashcoded.DesktopObserver;
 using Xunit;
 
 public sealed class HostTrackingConfigProviderTests
@@ -103,7 +103,7 @@ public sealed class HostTrackingConfigProviderTests
             BaseAddress = new Uri("http://127.0.0.1:5292")
         };
         var factory = new StaticHttpClientFactory(client);
-        var options = Options.Create(new TrackerOptions { ApiBaseUrl = "http://127.0.0.1:5292" });
+        var options = Options.Create(new ObserverOptions { ApiBaseUrl = "http://127.0.0.1:5292" });
 
         return new HostTrackingConfigProvider(factory, options, NullLogger<HostTrackingConfigProvider>.Instance);
     }
