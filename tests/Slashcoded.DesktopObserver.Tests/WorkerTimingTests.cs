@@ -185,7 +185,102 @@ public sealed class WorkerTimingTests
         Assert.Contains("\"processName\":\"notepad.exe\"", discovery.Body);
     }
 
-    private static WorkerFixture CreateFixture(HostTrackingConfig config, string? policyJson = null)
+    [Fact]
+    public async Task MeasureDisabled_DoesNotUploadAllowedAppActivity()
+    {
+        var fixture = CreateFixture(
+            HostTrackingConfig.Default,
+            """{"measureEnabled":false,"discoveryEnabled":true,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
+    }
+
+    [Fact]
+    public async Task MeasureDisabled_DiscardsActiveSegmentWhenPolicyRefreshTurnsItOff()
+    {
+        var fixture = CreateFixture(
+            HostTrackingConfig.Default,
+            """{"measureEnabled":true,"discoveryEnabled":true,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""",
+            """{"measureEnabled":false,"discoveryEnabled":true,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        fixture.Clock.Advance(TimeSpan.FromSeconds(61));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
+    }
+
+    [Fact]
+    public async Task MeasureReEnabled_AllowsFutureAllowedAppUploads()
+    {
+        var fixture = CreateFixture(
+            HostTrackingConfig.Default,
+            """{"measureEnabled":false,"discoveryEnabled":true,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""",
+            """{"measureEnabled":true,"discoveryEnabled":true,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        fixture.Clock.Advance(TimeSpan.FromSeconds(61));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        var upload = Assert.Single(fixture.UploadClient.Payloads);
+        var request = Assert.IsType<ObserverUploadRequest>(upload);
+        Assert.Equal(15_000, request.Events[0].DurationMs);
+    }
+
+    [Fact]
+    public async Task DiscoveryDisabled_DoesNotPostUnknownAppDiscovery()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default, """{"measureEnabled":true,"discoveryEnabled":false,"allowedApps":[],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "notepad");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.PolicyHandler.DiscoveryRequests);
+    }
+
+    [Fact]
+    public async Task MeasureDisabled_DoesNotPostUnknownAppDiscovery()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default, """{"measureEnabled":false,"discoveryEnabled":true,"allowedApps":[],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "notepad");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.PolicyHandler.DiscoveryRequests);
+    }
+
+    [Fact]
+    public async Task DiscoveryDisabled_StillUploadsAllowedApps()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default, """{"measureEnabled":true,"discoveryEnabled":false,"allowedApps":[{"processName":"chrome.exe","displayName":"Chrome"}],"ignoredApps":[]}""");
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "chrome");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.PolicyHandler.DiscoveryRequests);
+        Assert.Single(fixture.UploadClient.Payloads);
+    }
+
+    private static WorkerFixture CreateFixture(HostTrackingConfig config, params string[] policyJsonResponses)
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-04-14T09:15:00Z"));
         var idleMonitor = new FakeIdleMonitor();
@@ -195,7 +290,7 @@ public sealed class WorkerTimingTests
         {
             Current = config
         };
-        var policyHandler = new AllowlistMessageHandler(policyJson);
+        var policyHandler = new AllowlistMessageHandler(policyJsonResponses);
         var httpFactory = new StaticHttpClientFactory(new HttpClient(policyHandler));
         var options = Options.Create(new ObserverOptions
         {
@@ -238,9 +333,10 @@ public sealed class WorkerTimingTests
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class AllowlistMessageHandler(string? policyJson = null) : HttpMessageHandler
+    private sealed class AllowlistMessageHandler(params string[] policyJsonResponses) : HttpMessageHandler
     {
         public List<DiscoveryRequest> DiscoveryRequests { get; } = [];
+        private int _policyRequestCount;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -251,13 +347,25 @@ public sealed class WorkerTimingTests
             }
 
             var content = request.Method == HttpMethod.Get
-                ? (policyJson ?? """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","isAllowed":true,"isIgnored":false},{"processName":"msedge.exe","displayName":"Edge","isAllowed":true,"isIgnored":false}]}""")
+                ? NextPolicyResponse()
                 : "{}";
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(content, Encoding.UTF8, "application/json")
             });
+        }
+
+        private string NextPolicyResponse()
+        {
+            if (policyJsonResponses.Length == 0)
+            {
+                return """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","isAllowed":true,"isIgnored":false},{"processName":"msedge.exe","displayName":"Edge","isAllowed":true,"isIgnored":false}]}""";
+            }
+
+            var index = Math.Min(_policyRequestCount, policyJsonResponses.Length - 1);
+            _policyRequestCount++;
+            return policyJsonResponses[index];
         }
     }
 

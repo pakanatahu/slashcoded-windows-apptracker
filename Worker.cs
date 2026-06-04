@@ -133,6 +133,14 @@ public sealed class Worker : BackgroundService
             return;
         }
 
+        await EnsurePolicyAsync(cancellationToken);
+        if (!_policy.MeasureEnabled)
+        {
+            ResetActiveTracking();
+            _lastLoop = now;
+            return;
+        }
+
         if (_activeSample is null)
         {
             if (sample is not null)
@@ -253,6 +261,11 @@ public sealed class Worker : BackgroundService
     private async Task ReportDiscoveryIfNeededAsync(DesktopWindowSample sample, CancellationToken cancellationToken)
     {
         await EnsurePolicyAsync(cancellationToken);
+        if (!_policy.MeasureEnabled || !_policy.DiscoveryEnabled)
+        {
+            return;
+        }
+
         if (_policy.IsKnown(sample.ProcessName, sample.ProcessPath))
         {
             return;
@@ -263,7 +276,7 @@ public sealed class Worker : BackgroundService
 
     private async Task EnsurePolicyAsync(CancellationToken cancellationToken)
     {
-        if (DateTimeOffset.UtcNow < _allowlistExpires)
+        if (_clock.Now < _allowlistExpires)
         {
             return;
         }
@@ -274,14 +287,19 @@ public sealed class Worker : BackgroundService
             var response = await client.GetAsync($"{_options.ApiBaseUrl}/api/desktop/apps/policy", cancellationToken);
             response.EnsureSuccessStatusCode();
             var dto = await response.Content.ReadFromJsonAsync<DesktopPolicyResponse>(cancellationToken: cancellationToken)
-                ?? new DesktopPolicyResponse(null, Array.Empty<DesktopAppPolicyEntry>());
-            _policy = DesktopAppPolicy.FromEntries(dto.Apps);
-            _allowlistExpires = DateTimeOffset.UtcNow.Add(AllowlistTtl);
+                ?? DesktopPolicyResponse.Empty;
+            _policy = DesktopAppPolicy.FromResponse(
+                dto.MeasureEnabled,
+                dto.DiscoveryEnabled,
+                dto.AllowedApps,
+                dto.IgnoredApps,
+                dto.Apps);
+            _allowlistExpires = _clock.Now.Add(AllowlistTtl);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to refresh desktop app policy");
-            _allowlistExpires = DateTimeOffset.UtcNow.AddSeconds(10);
+            _allowlistExpires = _clock.Now.AddSeconds(10);
         }
     }
 
@@ -338,5 +356,20 @@ public sealed class Worker : BackgroundService
         base.Dispose();
     }
 
-    private sealed record DesktopPolicyResponse(string? ConfigVersion, IReadOnlyList<DesktopAppPolicyEntry> Apps);
+    private sealed record DesktopPolicyResponse(
+        string? ConfigVersion,
+        bool? MeasureEnabled,
+        bool? DiscoveryEnabled,
+        IReadOnlyList<DesktopAppPolicyEntry>? AllowedApps,
+        IReadOnlyList<DesktopAppPolicyEntry>? IgnoredApps,
+        IReadOnlyList<DesktopAppPolicyEntry>? Apps)
+    {
+        public static DesktopPolicyResponse Empty { get; } = new(
+            null,
+            null,
+            null,
+            Array.Empty<DesktopAppPolicyEntry>(),
+            Array.Empty<DesktopAppPolicyEntry>(),
+            Array.Empty<DesktopAppPolicyEntry>());
+    }
 }

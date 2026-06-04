@@ -10,7 +10,7 @@ Windows desktop activity observer used by Slashcoded Desktop. It measures foregr
 - Segments the current foreground app using the host `segmentDurationSeconds` value.
 - Stops emitting focused app slices when idle time reaches the host `idleThresholdSeconds` value.
 - Emits neutral `contractVersion = "v3"` desktop `app` events and sends them to the local API for normalization into `activity_events_v2`.
-- Polls the local API allowlist on a regular cadence only to suppress duplicate discovery reports for known apps.
+- Polls the local API desktop policy to control measurement, uploads, and unknown-app discovery.
 - Registers a trusted source once and signs each upload with trust headers.
 
 ## Configuration
@@ -117,18 +117,32 @@ The observer expects the local API to expose `GET {ApiBaseUrl}/api/desktop/apps/
 ```json
 {
   "configVersion": "2026-05-13T17:00:00.0000000Z",
-  "apps": [
+  "measureEnabled": true,
+  "discoveryEnabled": true,
+  "allowedApps": [
     {
-      "processName": "explorer",
-      "displayName": "Windows Explorer",
-      "isAllowed": true,
-      "isIgnored": false
+      "processName": "explorer.exe",
+      "displayName": "Windows Explorer"
+    }
+  ],
+  "ignoredApps": [
+    {
+      "processName": "steam.exe",
+      "displayName": "Steam"
     }
   ]
 }
 ```
 
-The desktop policy controls both discovery de-duplication and upload suppression. The observer uploads only when a process is explicitly allowed and not ignored.
+The desktop policy controls measurement, discovery, and upload suppression:
+
+- `measureEnabled = false` stops foreground measurement and uploads. If it changes to `false` while a segment is active, the observer discards that segment without upload.
+- `discoveryEnabled = false` stops unknown-app discovery.
+- `allowedApps` are eligible for measurement and upload when measurement is enabled.
+- `ignoredApps` are not measured, uploaded, or discovered.
+- Apps absent from both lists are unknown. When measurement and discovery are enabled, the observer immediately reports the unknown app on first foreground observation without waiting for the next upload slice.
+
+For legacy local APIs, the observer still accepts an `apps` list with `isAllowed` and `isIgnored` flags. Legacy rows with `isAllowed = true` and `isIgnored = false` are treated as allowed apps. Legacy rows with `isIgnored = true` are treated as ignored apps. Missing `measureEnabled` and `discoveryEnabled` values default to `true`.
 
 Unknown apps can still be reported to:
 

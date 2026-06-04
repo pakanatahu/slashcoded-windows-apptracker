@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added support for desktop policy flags `measureEnabled` and `discoveryEnabled`.
+- Updated desktop policy parsing to prefer `allowedApps` and `ignoredApps` while preserving legacy `apps` responses.
+- Ensured measurement-off policy changes discard active segments without upload.
+- Documented and tested immediate unknown-app discovery on first foreground observation.
+
 ## 0.4.0 - 2026-05-23
 
 - Rebranded the Windows desktop app from Desktop Tracker to Desktop Observer across project names, namespaces, docs, logs, and configuration.
