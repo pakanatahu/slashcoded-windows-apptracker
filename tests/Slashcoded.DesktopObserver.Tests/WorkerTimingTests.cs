@@ -171,6 +171,20 @@ public sealed class WorkerTimingTests
         Assert.Empty(fixture.UploadClient.Payloads);
     }
 
+    [Fact]
+    public async Task UnknownApp_DiscoveryIsPostedOnFirstObservationWithoutWaitingForUploadSlice()
+    {
+        var fixture = CreateFixture(HostTrackingConfig.Default);
+
+        fixture.Monitor.Current = Sample(fixture.Clock.Now, processName: "notepad");
+        await fixture.Worker.TickAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.UploadClient.Payloads);
+        var discovery = Assert.Single(fixture.PolicyHandler.DiscoveryRequests);
+        Assert.Equal("/api/desktop/apps/discover", discovery.Path);
+        Assert.Contains("\"processName\":\"notepad.exe\"", discovery.Body);
+    }
+
     private static WorkerFixture CreateFixture(HostTrackingConfig config, string? policyJson = null)
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-04-14T09:15:00Z"));
@@ -181,7 +195,8 @@ public sealed class WorkerTimingTests
         {
             Current = config
         };
-        var httpFactory = new StaticHttpClientFactory(new HttpClient(new AllowlistMessageHandler(policyJson)));
+        var policyHandler = new AllowlistMessageHandler(policyJson);
+        var httpFactory = new StaticHttpClientFactory(new HttpClient(policyHandler));
         var options = Options.Create(new ObserverOptions
         {
             ApiBaseUrl = "http://127.0.0.1:5292",
@@ -198,7 +213,7 @@ public sealed class WorkerTimingTests
             options,
             NullLogger<Worker>.Instance);
 
-        return new WorkerFixture(worker, clock, idleMonitor, monitor, uploadClient, configProvider);
+        return new WorkerFixture(worker, clock, idleMonitor, monitor, uploadClient, configProvider, policyHandler);
     }
 
     private static DesktopWindowSample Sample(DateTimeOffset capturedAt, string processName = "chrome")
@@ -215,7 +230,8 @@ public sealed class WorkerTimingTests
         FakeIdleMonitor IdleMonitor,
         FakeActiveWindowMonitor Monitor,
         FakeTrustedUploadClient UploadClient,
-        FakeHostTrackingConfigProvider ConfigProvider);
+        FakeHostTrackingConfigProvider ConfigProvider,
+        AllowlistMessageHandler PolicyHandler);
 
     private sealed class StaticHttpClientFactory(HttpClient client) : IHttpClientFactory
     {
@@ -224,8 +240,16 @@ public sealed class WorkerTimingTests
 
     private sealed class AllowlistMessageHandler(string? policyJson = null) : HttpMessageHandler
     {
+        public List<DiscoveryRequest> DiscoveryRequests { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Post)
+            {
+                var body = request.Content?.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult() ?? string.Empty;
+                DiscoveryRequests.Add(new DiscoveryRequest(request.RequestUri?.AbsolutePath ?? string.Empty, body));
+            }
+
             var content = request.Method == HttpMethod.Get
                 ? (policyJson ?? """{"apps":[{"processName":"chrome.exe","displayName":"Chrome","isAllowed":true,"isIgnored":false},{"processName":"msedge.exe","displayName":"Edge","isAllowed":true,"isIgnored":false}]}""")
                 : "{}";
@@ -236,4 +260,6 @@ public sealed class WorkerTimingTests
             });
         }
     }
+
+    private sealed record DiscoveryRequest(string Path, string Body);
 }
